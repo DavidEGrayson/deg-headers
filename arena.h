@@ -1186,7 +1186,8 @@ typedef struct AByteSlice {
 //
 // Since the array is null-terminated (meaning the last item is all zeros),
 // it can be easily iterated by any code without needing to use this library
-// (but modifying it or doing fast lookups will require this library).
+// (but the keys or the order of items or doing fast lookups will require this
+// library).
 //
 // The memory layout of the main object of the AHash is:
 //   AHash header;
@@ -1228,16 +1229,23 @@ typedef struct AByteSlice {
 //   key type because if the key is a 'const char *', we don't know if it
 //   points to arbitrary strings (so the type should be AKEY_STRING) or
 //   interned strings that are equal if and only if their addresses are equal
-//   (so the key type should be AKEY_DEFAULT).
+//   (so the key type should be AKEY_DEFAULT).  Note that the address of
+//   hash, which is returned by this function, can change when the hash grows.
 //
-// TODO: document ahash_length
-// TODO: document ahash_capacity
+// size_t ahash_length(T * hash)
+//   Returns the number of items stored in the hash.
 //
-// T* ahash_copy(T * hash, size_t capacity)
+// size_t ahash_capacity(T * hash)
+//   Returns the number of items the hash can store without needing to grow.
+//
+// T * ahash_copy(T * hash, size_t capacity)
 //   Creates a new AHash that is a copy of the specified AHash, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
-// TODO: document ahash_resize_capacity
+// void apl_resize_capacity(T *** list, size_t capacity)
+//   Changes the capacity of the AHash without changing its contents.
+//   This function increases the capacity to ensure it is a power of 2
+//   and greater than or eqaul to the length of the hash.
 //
 // T * ahash_find(T ** hash, TK * key);
 // T * ahash_find(T ** hash, TK key);
