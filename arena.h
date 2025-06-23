@@ -842,23 +842,19 @@ static inline APtrList * _apl_header(void ** list)
   return (APtrList *)((uint8_t *)list - sizeof(APtrList));
 }
 
-// TODO: get rid of this "_arg" pattern and use proper types for the arguments
-// that don't require casting later... I think the pattern mainly just weakens
-// type-checking inside our functions.
-static inline size_t _apl_length(const void * list_arg)
+static inline size_t _apl_length(void ** list)
 {
-  if ((void **)list_arg == NULL) { return 0; }
-  return _apl_header((void **)list_arg)->length;
+  if (list == NULL) { return 0; }
+  return _apl_header(list)->length;
 }
 
-static inline size_t _apl_capacity(const void * list_arg)
+static inline size_t _apl_capacity(void ** list)
 {
-  return _apl_header((void **)list_arg)->capacity;
+  return _apl_header(list)->capacity;
 }
 
-static void ** _apl_copy(const void * old_list_arg, size_t capacity)
+static void ** _apl_copy(void ** old_list, size_t capacity)
 {
-  void ** old_list = (void **)old_list_arg;
   APtrList * old_apl = _apl_header(old_list);
 
   if (capacity < old_apl->length) { capacity = old_apl->length; }
@@ -872,9 +868,8 @@ static void ** _apl_copy(const void * old_list_arg, size_t capacity)
   return list;
 }
 
-static void _apl_resize_capacity(void * list_arg, size_t new_capacity)
+static void _apl_resize_capacity(void *** list, size_t new_capacity)
 {
-  void *** list = (void ***)list_arg;
   assert(list);
   APtrList * apl = _apl_header(*list);
 
@@ -901,9 +896,8 @@ static void _apl_resize_capacity(void * list_arg, size_t new_capacity)
   old_list[0] = NULL;
 }
 
-static inline void _apl_set_length(void * list_arg, size_t length)
+static inline void _apl_set_length(void *** list, size_t length)
 {
-  void *** list = (void ***)list_arg;
   assert(list);
   APtrList * apl = _apl_header(*list);
   if (length > apl->capacity) { _apl_resize_capacity(list, length); }
@@ -912,9 +906,8 @@ static inline void _apl_set_length(void * list_arg, size_t length)
   (*list)[apl->length] = 0;
 }
 
-static inline void _apl_push(void * list_arg, void * item)
+static inline void _apl_push(void *** list, void * item)
 {
-  void *** list = (void ***)list_arg;
   assert(list);
   APtrList * apl = _apl_header(*list);
   if (apl->length >= apl->capacity)
@@ -931,51 +924,51 @@ static inline void _apl_push(void * list_arg, void * item)
 #ifdef __cplusplus
 template <typename T> static inline size_t apl_length(T * const * list)
 {
-  return _apl_length(list);
+  return _apl_length((void **)list);
 }
 
 template <typename T> static inline size_t apl_capacity(T * const * list)
 {
-  return _apl_capacity(list);
+  return _apl_capacity((void **)list);
 }
 
 template <typename T> static inline T ** apl_copy(T * const * list, size_t capacity)
 {
-  return (T **)_apl_copy(list, capacity);
+  return (T **)_apl_copy((void **)list, capacity);
 }
 
 template<typename T> static inline void apl_resize_capacity(T *** list, size_t capacity)
 {
-  return _apl_resize_capacity(list, capacity);
+  return _apl_resize_capacity((void ***)list, capacity);
 }
 
 template<typename T> static inline void apl_set_length(T *** list, size_t length)
 {
-  return _apl_set_length(list, length);
+  return _apl_set_length((void ***)list, length);
 }
 
 template<typename T> static inline void apl_push(T *** list, T * item)
 {
-  return _apl_push(list, item);
+  return _apl_push((void ***)list, item);
 }
 
 template<typename T> static inline void apl_push(const T *** list, T * item)
 {
-  return _apl_push(list, item);
+  return _apl_push((void ***)list, item);
 }
 
 template<typename T> static inline void apl_push(const T *** list, const T * item)
 {
-  return _apl_push(list, (void *)item);
+  return _apl_push((void ***)list, (void *)item);
 }
 
 #else
-#define apl_length(list) (_ARENA_PP(list), _apl_length(list))
-#define apl_capacity(list) (_ARENA_PP(list), _apl_capacity(list))
-#define apl_copy(list, cap) (_ARENA_PP(list), (typeof(**list)**)_apl_copy(list, cap))
-#define apl_resize_capacity(list, c) (_ARENA_PPP(list), _apl_resize_capacity(list, c))
-#define apl_set_length(list, l) (_ARENA_PPP(list), _apl_set_length(list, l))
-#define apl_push(list, item) (_ARENA_PPP(list), _apl_push(list, _ARENA_APLI(list, item)))
+#define apl_length(list) (_ARENA_PP(list), _apl_length((void **)list))
+#define apl_capacity(list) (_ARENA_PP(list), _apl_capacity((void **)list))
+#define apl_copy(list, cap) (_ARENA_PP(list), (typeof(**list)**)_apl_copy((void **)list, cap))
+#define apl_resize_capacity(list, c) (_ARENA_PPP(list), _apl_resize_capacity((void ***)list, c))
+#define apl_set_length(list, l) (_ARENA_PPP(list), _apl_set_length((void ***)list, l))
+#define apl_push(list, item) (_ARENA_PPP(list), _apl_push((void ***)list, _ARENA_APLI(list, item)))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////
@@ -1355,28 +1348,22 @@ static inline void * _ahash_create(Arena * arena, size_t capacity, AKeyType type
   return list;
 }
 
-static void _abreak(){
-  printf("_abreak");
-} // tmphax
-
 static inline AHash * _ahash_header(void * hash)
 {
-  if (((size_t *)hash)[-1] != (size_t)MAGIC_AHASH) {
-    _abreak();
-  }
+  assert(((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   assert(hash && ((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   return (AHash *)((uint8_t *)hash - sizeof(AHash));
 }
 
-static inline size_t _ahash_length(const void * list_arg)
+static inline size_t _ahash_length(void * hash)
 {
-  if ((void **)list_arg == NULL) { return 0; }
-  return _ahash_header((void **)list_arg)->length;
+  if (hash == NULL) { return 0; }
+  return _ahash_header(hash)->length;
 }
 
-static inline size_t _ahash_capacity(const void * list_arg)
+static inline size_t _ahash_capacity(void * hash)
 {
-  return _ahash_header((void **)list_arg)->capacity;
+  return _ahash_header(hash)->capacity;
 }
 
 static void * _ahash_copy(const void * old_hash, size_t capacity)
@@ -1559,12 +1546,12 @@ static inline void * _ahash_update(void ** hash, void * item)
 #ifdef __cplusplus
 template <typename T> static inline size_t ahash_length(const T * hash)
 {
-  return _ahash_length(hash);
+  return _ahash_length((void *)hash);
 }
 
 template <typename T> static inline size_t ahash_capacity(const T * hash)
 {
-  return _ahash_capacity(hash);
+  return _ahash_capacity((void *)hash);
 }
 
 template <typename T> static inline T * ahash_copy(const T * hash, size_t capacity)
