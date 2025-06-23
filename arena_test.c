@@ -94,6 +94,22 @@ void hexdump_ahash(void * hash)
   }
 }
 
+// The string functions require vsnprintf to have the proper return value.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+void test_vsnprintf()
+{
+  va_list ap = {0};
+  char s[4] = {};
+  int r = vsnprintf(s, 2, "abcd", ap);
+  if (r != 4 || strcmp(s, "a"))
+  {
+    fprintf(stderr, "vsnprintf test failed (%d,%s)\n", r, s);
+    exit(1);
+  }
+}
+#pragma GCC diagnostic pop
+
 void test_arena_randomly()
 {
   for (size_t i = 0; i < ALLOC_REQUEST_COUNT; i++)
@@ -477,6 +493,8 @@ void test_ahash_type_byte_slice()
 int main()
 {
   srand(time(NULL));
+
+  test_vsnprintf();
 
   test_arena_randomly();
 
