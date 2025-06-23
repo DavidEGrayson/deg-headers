@@ -2,12 +2,12 @@
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
-// This header implements an arena: a linked list of blocks of memory
-// allocated from the system, from which you can allocate sub-sections
-// to hold your own data.  Individual allocations are very efficient
-// because they typically just involve a few simple checks and bumping
-// a pointer.  Instead of freeing each allocation individually, you free
-// all of the allocations in the entire arena once you are done using them.
+// This header implements an arena: a linked list of large blocks of memory
+// allocated from the system, from which you can allocate sub-sections to
+// hold your own data.  Individual allocations are very efficient because
+// they typically just involve a few simple checks and bumping a pointer.
+// Instead of freeing each allocation individually, you free them all
+// together when you are done using every one of them.
 // This can make your code more efficient and less error-prone than the
 // traditional plan of calling `malloc` and `free` for each individual
 // allocation.
@@ -34,12 +34,14 @@
 // second arena for short-lived objects that is cleared after each phase.
 //
 // This header also provides code that makes it easy to work with
-// arena-allocated null-terminated strings (called AString),
-// arena-allocated null-terminated lists of pointers (called APtrList),
-// and arena-allocated hash maps (called AHash).
+// an arena-allocated null-terminated string (AString),
+// an arena-allocated null-terminated lists of pointers (APtrList),
+// and arena-allocated hash maps (AHash).
 //
 // Note: If compiling for C, you must use a modern compiler (GCC 13+) that
 // supports C23, since this code uses enums with a specified type.
+//
+// This documentation continues in the comments below.
 
 #include <assert.h>
 #include <stdalign.h>
@@ -68,12 +70,13 @@
 #define MAGIC_AHASH 0x89cdfacf3e414841  // "AHA>" + 4 non-ASCII bytes
 
 #ifndef __cplusplus
-// Expression that enforces that x's type matches T**, possibly with const qualifiers.
-#define _ARENA_PP(x) ((void)_Generic((0), typeof(**(x)): 0, int: 0))
+// Expression that enforces that x's type matches T**, possibly with const qualifiers,
+// then casts it to 'void **'.
+#define _ARENA_PP(x) (_Generic(typeof(**(x)), default: (void **)(x)))
 
 // Expression that enforces that x's type matches T***, with the const qualifier
-// not allowed on the T* or T**.
-#define _ARENA_PPP(x) ((void)_Generic((x), typeof(***(x))***: 0))
+// not allowed on the T* or T**, then casts it to 'void ***'
+#define _ARENA_PPP(x) (_Generic(typeof(***(x))***, default: (void ***)(x)))
 
 // Triggers a warning if y is not a good type of pointer to be added to list x,
 // and casts y to (void *).
@@ -88,7 +91,7 @@
 #define _AHASH_P(x) (_Generic((**(x)).key, default: (void **)x))
 
 // Triggers a warning if y is not a pointer to the type of item contained in
-// hash x, and also casts y to a (void *).
+// hash x, and also casts y to 'void *'.
 #define _AHASH_ITEM(x, y) ({typeof(**(x))* type_checked_item = (y); (void *)type_checked_item;})
 
 // This expression ensures that k is of type TK* or TK and converts k to TK*.
@@ -963,12 +966,12 @@ template<typename T> static inline void apl_push(const T *** list, const T * ite
 }
 
 #else
-#define apl_length(list) (_ARENA_PP(list), _apl_length((void **)list))
-#define apl_capacity(list) (_ARENA_PP(list), _apl_capacity((void **)list))
-#define apl_copy(list, cap) (_ARENA_PP(list), (typeof(**list)**)_apl_copy((void **)list, cap))
-#define apl_resize_capacity(list, c) (_ARENA_PPP(list), _apl_resize_capacity((void ***)list, c))
-#define apl_set_length(list, l) (_ARENA_PPP(list), _apl_set_length((void ***)list, l))
-#define apl_push(list, item) (_ARENA_PPP(list), _apl_push((void ***)list, _ARENA_APLI(list, item)))
+#define apl_length(list) (_apl_length(_ARENA_PP(list)))
+#define apl_capacity(list) (_apl_capacity(_ARENA_PP(list)))
+#define apl_copy(list, cap) ((typeof(**list)**)_apl_copy(_ARENA_PP(list), cap))
+#define apl_resize_capacity(list, c) (_apl_resize_capacity(_ARENA_PPP(list), c))
+#define apl_set_length(list, l) (_apl_set_length(_ARENA_PPP(list), l))
+#define apl_push(list, item) (_apl_push(_ARENA_PPP(list), _ARENA_APLI(list, item)))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////
@@ -1216,7 +1219,7 @@ typedef struct AByteSlice {
 //   use by the hash.  Items are hashed and compared based on the contents of
 //   the data.
 //
-// Public interface for APtrList:
+// Public interface for AHash:
 //
 // T * ahash_create(Arena *, size_t capacity, AKeyType type, T);
 //   Creates a hash that has enough memory to hold the specified number of
