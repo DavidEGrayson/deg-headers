@@ -2,38 +2,41 @@
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
-// The Arena object implemented here is an object that gets large blocks of
-// memory from the system and lets you allocate space in them to hold data.
-// Using an arena to allocate your memory can be more efficient and less
-// error-prone than calling `malloc` and `free` for each individual object.
+// This header implements an arena: a linked list of blocks of memory
+// allocated from the system, from which you can allocate sub-sections
+// to hold your own data.  Individual allocations are very efficient
+// because they typically just involve a few simple checks and bumping
+// a pointer.  Instead of freeing each allocation individually, you free
+// all of the allocations in the entire arena once you are done using them.
+// This can make your code more efficient and less error-prone than the
+// traditional plan of calling `malloc` and `free` for each individual
+// allocation.
 //
 // The typical way to use this arena is:
-// 1. Create an Arena struct and zero initialize it.
+// 1. Create an Arena struct and zero-initialize it.
 // 2. Call `arena_alloc` or `arena_alloc_no_init` to allocate memory regions
 //    from it, either directly or through a wrapper function like
 //    `arena_alloc1`, or through the container types defined in this header.
 // 3. Optionally call `arena_clear(&arena)` if you are done using the data
 //    currently stored in the arena but plan to make more allocations later.
+//    The largest block of memory in the arena is retained for future use.
 // 4. Call `arena_free(&arena)` when you are done using the arena or just want
-//    it to free all the memory it allocated.
+//    it to free all the memory it allocated, allowing the arena's memory
+//    to be used for other purposes.
 //
 // To avoid complexity and reduce the risk of use-after-free bugs, you should
 // minimize the number of arenas you have and the number of times you call
 // `arena_clear` or `arena_free`.  One idea is to have a single arena where you
 // allocate everything you need for a complex computation, and then you call
 // `arena_clear` or `arena_free` when you are done using the result of the
-// computation.  If the computation has multiple, distinct phases, you could
-// reduce memory usage by having a second arena for short-lived objects and
-// call `arena_clear` on it at the end of each phase.
+// computation or have copied it to more permanent memory.  If the computation
+// has multiple, distinct phases, you could reduce memory usage by having a
+// second arena for short-lived objects that is cleared after each phase.
 //
 // This header also provides code that makes it easy to work with
-// arena-allocated null-terminated strings and arena-allocated null-terminated
-// lists of pointers.
-//
-// Note: Some of the string functions in this code require a standards-compliant
-// implementation of vsnprintf so it will not work in some older environments
-// on Windows.
-// See https://gist.github.com/DavidEGrayson/6ce6dc23ad49c8ecfdd3c2b63a80410a
+// arena-allocated null-terminated strings (called AString),
+// arena-allocated null-terminated lists of pointers (called APtrList),
+// and arena-allocated hash maps (called AHash).
 //
 // Note: If compiling for C, you must use a modern compiler (GCC 13+) that
 // supports C23, since this code uses enums with a specified type.
