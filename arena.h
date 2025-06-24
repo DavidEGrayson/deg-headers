@@ -82,23 +82,16 @@
 // and casts y to (void *).
 #define _ARENA_APLI(x, y) ({typeof(***(x))* type_checked_item = (y); (void *)type_checked_item;})
 
-// Expression that enforces that x's type matches T*, where T has a 'key'
-// member, then casts it to a 'void *'.
-#define _AHASH(x) (_Generic((*(x)).key, default: (void *)x))
+// T** gets changed to void**, but const T**, T* const *, and T** const not allowed.
+#define _AHASH_PTR(x) (_Generic(x, typeof_unqual(**(x))**: (void **)(x)))
 
-// Expression that enforces that x's type matches T**, where T has a 'key'
-// member, then casts it to a 'void **'.
-#define _AHASH_P(x) (_Generic((**(x)).key, default: (void **)x))
+// T* and const T* pass through.  T is changed to T *.
+#define _AHASH_ITEM_PTR(x, i) (_Generic((i), \
+  typeof_unqual(*x) *: (i), const typeof_unqual(*x) *: (i), typeof_unqual(*x): (typeof_unqual(i)[1]){i}))
 
-// Triggers a warning if y is not a pointer to the type of item contained in
-// hash x, and also casts y to 'void *'.
-#define _AHASH_ITEM(x, y) ({typeof(**(x))* type_checked_item = (y); (void *)type_checked_item;})
-
-// This expression ensures that k is of type TK*, TK, const TK*, or const TK,
-// and converts k to TK*.
-#define _AHASH_KEY_P(x, k) (_Generic((typeof_unqual(k))0, \
-  typeof_unqual((x)->key)*: (k), typeof_unqual((x)->key): (typeof_unqual(k)[1]){k}, \
-  const typeof_unqual((x)->key) *: (k)))
+// TK* and const TK* pass through.  TK is changed to TK *.
+#define _AHASH_KEY_PTR(x, k) (_Generic((k), \
+  typeof_unqual((x)->key) *: (k), const typeof_unqual((x)->key) *: (k), typeof_unqual((x)->key): (typeof_unqual(k)[1]){k}))
 
 #endif
 
@@ -802,6 +795,8 @@ static inline char * astr_compact_into_cstr(char * str)
 //   arena, which is only possible if you didn't allocate anything from that
 //   arena after the last time the list grew).
 //
+// TODO: functions for removing items from APtrList
+//
 // Further explanations:
 //
 // In the documentation above, "T *" is the type of pointer that the user wants
@@ -1234,39 +1229,41 @@ typedef struct AByteSlice {
 //   (so the key type should be AKEY_DEFAULT).  Note that the address of
 //   hash, which is returned by this function, can change when the hash grows.
 //
-// size_t ahash_length(T * hash)
+// size_t ahash_length(const T * hash)
 //   Returns the number of items stored in the hash.
 //
-// size_t ahash_capacity(T * hash)
+// size_t ahash_capacity(const T * hash)
 //   Returns the number of items the hash can store without needing to grow.
 //
-// T * ahash_copy(T * hash, size_t capacity)
+// T * ahash_copy(const T * hash, size_t capacity)
 //   Creates a new AHash that is a copy of the specified AHash, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
-// void apl_resize_capacity(T *** list, size_t capacity)
+// void ahash_resize_capacity(T *** list, size_t capacity)
 //   Changes the capacity of the AHash without changing its contents.
 //   This function increases the capacity to ensure it is a power of 2
 //   and greater than or eqaul to the length of the hash.
 //
-// T * ahash_find(T ** hash, TK * key);
-// T * ahash_find(T ** hash, TK key);
+// T * ahash_find(const T * hash, const TK * key);
+// T * ahash_find(const T * hash, TK key);
 //   Looks for an item with the specified key.  Returns a
 //   pointer to it if it exists, or NULL if it does not exist
 //   (the item's location is not permanent: it can move when the table grows)
 //
-// T * ahash_find_or_update(T ** hash, T * item, bool * found);
+// T * ahash_update(T ** hash, const T * item);
+//   Copies the specified item into the hash table and returns a pointer to its
+//   new location (which is not permanent: it can move when the table
+//   grows).  If an item already existed in the hash table with the same key,
+//   this function overwrites it completely.
+//
+// T * ahash_find_or_update(T ** hash, const T * item, bool * found);
 //   Looks for an item with the specified key.  If it is found, then
 //   this function sets *found to true.  If it is not found, this function
 //   sets *found to false and copies all the data from 'item' into the hash
 //   table.  Returns a pointer to the location of the item that was found or
 //   added (which is not permanent: it can move when the table grows).
 //
-// T * ahash_update(T ** hash, T * item);
-//   Copies the specified item into the hash table and returns a pointer to its
-//   new location (which is not permanent: it can move when the table
-//   grows).  If an item already existed in the hash table with the same key,
-//   this function overwrites it completely.
+// TODO: functions for removing items from AHash
 
 typedef enum AKeyType : uint8_t {
   AKEY_DEFAULT = 0,
@@ -1495,7 +1492,7 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
-static inline void * _ahash_find_or_update(void ** hash, void * item, bool * found)
+static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
 {
   AHash * ahash = _ahash_header(*hash);
 
@@ -1541,7 +1538,7 @@ static inline void * _ahash_find_or_update(void ** hash, void * item, bool * fou
   return new_item;
 }
 
-static inline void * _ahash_update(void ** hash, void * item)
+static inline void * _ahash_update(void ** hash, const void * item)
 {
   bool found;
   void * stored_item = _ahash_find_or_update(hash, item, &found);
@@ -1559,12 +1556,12 @@ static inline void * _ahash_update(void ** hash, void * item)
 #ifdef __cplusplus
 template <typename T> static inline size_t ahash_length(const T * hash)
 {
-  return _ahash_length((void *)hash);
+  return _ahash_length((const void *)hash);
 }
 
 template <typename T> static inline size_t ahash_capacity(const T * hash)
 {
-  return _ahash_capacity((void *)hash);
+  return _ahash_capacity((const void *)hash);
 }
 
 template <typename T> static inline T * ahash_copy(const T * hash, size_t capacity)
@@ -1580,7 +1577,7 @@ template<typename T> static inline void ahash_resize_capacity(T ** hash, size_t 
 template<typename T> static inline T * ahash_find(const T * hash,
   const decltype(((T*)0)->key) * item)
 {
-  return (T *)_ahash_find((void *)hash, (void *)item);
+  return (T *)_ahash_find((const void *)hash, item);
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
@@ -1590,23 +1587,29 @@ template<typename T> static inline T * ahash_find(const T * hash,
 }
 
 template<typename T> static inline T * ahash_find_or_update(T ** hash,
-  T * item, bool * found)
+  const T * item, bool * found)
 {
-  return (T *)_ahash_find_or_update((void **)hash, (void *)item, found);
+  return (T *)_ahash_find_or_update((void **)hash, item, found);
 }
 
-template<typename T> static inline T * ahash_update(T ** hash, T * item)
+template<typename T> static inline T * ahash_find_or_update(T ** hash,
+  T item, bool * found)
 {
-  return (T *)_ahash_update((void **)hash, (void *)item);
+  return (T *)_ahash_find_or_update((void **)hash, &item, found);
+}
+
+template<typename T> static inline T * ahash_update(T ** hash, const T * item)
+{
+  return (T *)_ahash_update((void **)hash, item);
 }
 
 #else
 #define ahash_length _ahash_length
 #define ahash_capacity _ahash_capacity
-#define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy(_AHASH(hash), (cap)))
-#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_AHASH_P(hash), (c)))
-#define ahash_set_length(hash, l) (_ahash_set_length(_AHASH_P(hash), (l)))
-#define ahash_find(hash, key) ((typeof(hash))_ahash_find(_AHASH(hash), _AHASH_KEY_P((hash), (key))))
-#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_AHASH_P(hash), _AHASH_ITEM((hash), (item)), (f)))
-#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_AHASH_P(hash), _AHASH_ITEM((hash), (item))))
+#define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
+#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_AHASH_PTR(hash), (c)))
+#define ahash_set_length(hash, l) (_ahash_set_length(_AHASH_PTR(hash), (l)))
+#define ahash_find(hash, key) ((typeof(hash))_ahash_find((hash), _AHASH_KEY_PTR((hash), (key))))
+#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_AHASH_PTR(hash), _AHASH_ITEM_PTR(*(hash), (item)), (f)))
+#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_AHASH_PTR(hash), _AHASH_ITEM_PTR(*(hash), (item))))
 #endif

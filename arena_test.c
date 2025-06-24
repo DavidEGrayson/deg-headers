@@ -197,7 +197,7 @@ void test_astring()
   char * str4 = astr_create_f(&arena, "abcd");
   char * str4_copy;
 
-  // AString constness tests
+  // AString const tests
   {
     const char * cstr = str4;
     assert(astr_length(cstr) == 4);
@@ -255,7 +255,7 @@ void test_apl()
   apl_resize_capacity(&foo_list, 8);
   assert(apl_capacity(foo_list) == 8);
 
-  // APtrList constness tests: so many cases to test!
+  // APtrList const tests: so many cases to test!
 
   Foo ** copy_list;
   const Foo ** copy_list_const;
@@ -326,6 +326,7 @@ void test_ahash_type_default()
   bool found = true;
 
   {
+    // find_or_update with KVPair *, that does an update
     KVPair tmp = { 1, 11 };
     KVPair * result = ahash_find_or_update(&hash, &tmp, &found);
     assert(!found);
@@ -334,14 +335,15 @@ void test_ahash_type_default()
   }
 
   {
-    KVPair tmp = { 2, 22 };
-    KVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    // find_or_update with KVPair, that does another update
+    KVPair * result = ahash_find_or_update(&hash, ((KVPair){ 2, 22 }), &found);
     assert(!found);
     assert(ahash_length(hash) == 2);
     assert(result->key == 2 && result->value == 22);
   }
 
   {
+    // find_or_update that does not update
     KVPair tmp = { 2, 23 };
     KVPair * result = ahash_find_or_update(&hash, &tmp, &found);
     assert(found);
@@ -351,16 +353,20 @@ void test_ahash_type_default()
   }
 
   {
+    // simple update
     KVPair tmp = { 3, 33 };
-    ahash_find_or_update(&hash, &tmp, &found);
+    ahash_update(&hash, &tmp);
     assert(ahash_length(hash) == 3);
   }
 
   {
+    // find tests
     assert(ahash_find(hash, -1) == NULL);
     assert(ahash_find(hash, 2)->value == 22);
     int key = 1;
     assert(ahash_find(hash, &key)->value == 11);
+    int ckey = 2;
+    assert(ahash_find(hash, &ckey)->value == 22);
   }
 
   ahash_resize_capacity(&hash, 17);
@@ -373,25 +379,39 @@ void test_ahash_type_default()
     assert(ahash_find(hash2, 3)->value == 33);
   }
 
-  // Constness tests.
   {
-    const KVPair * chash = hash;
+    // Const hashes
     const int cint = 2;
+    const KVPair cpair = { 4, 44 };
 
+    // 'const T *' is the typical type of a read-only hash.
+    const KVPair * chash = hash;
     ahash_length(chash);
     ahash_capacity(chash);
-
     assert(ahash_find(chash, 3)->value == 33);
     assert(ahash_find(chash, &cint)->value == 22);
-    assert(ahash_find(hash, &cint)->value == 22);
-
     KVPair * copy = ahash_copy(chash, 0);
     assert(ahash_length(copy) == 3);
-
     //ahash_find_or_update(&chash, chash[0], NULL);  // error in C/C++
+    //ahash_update(&chash, &cpair);  // error in C/C++
 
-    const KVPair tmp = { 0, 0 };
-    ahash_update(&chash, &tmp);  // TODO: error in C/C++
+    // 'T * const' is another type of read-only hash: you would see this
+    // if the hash is a member of a struct and you are accessing the struct
+    // through a const pointer, for example.
+    KVPair * const chash2 = hash;
+    ahash_length(chash2);
+    ahash_capacity(chash2);
+    assert(ahash_find(chash2, 3)->value == 33);
+    assert(ahash_find(chash2, &cint)->value == 22);
+    KVPair * copy2 = ahash_copy(chash2, 0);
+    assert(ahash_length(copy2) == 3);
+    //ahash_find_or_update(&chash2, chash2[0], NULL);  // error in C/C++
+    //ahash_update(&chash2, &cpair);  // error in C/C++
+
+    // If we change the original hash, the read-only hashes see the copy.
+    ahash_update(&hash, &cpair);
+    assert(ahash_find(chash, 4)->value == 44);
+    assert(ahash_find(chash2, 4)->value == 44);
   }
 }
 
