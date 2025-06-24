@@ -70,20 +70,18 @@
 #define MAGIC_AHASH 0x89cdfacf3e414841  // "AHA>" + 4 non-ASCII bytes
 
 #ifndef __cplusplus
-// Expression that enforces that x's type matches T**, possibly with const qualifiers,
-// then casts it to 'void **'.
-#define _ARENA_PP(x) (_Generic(typeof(**(x)), default: (void **)(x)))
+// T** (possibly with const qualifiers) is changed to 'void * const *'
+#define _ARENA_PCP(x) (_Generic(typeof(**(x)), default: (void * const *)(x)))
 
-// Expression that enforces that x's type matches T***, with the const qualifier
-// not allowed on the T* or T**, then casts it to 'void ***'
-#define _ARENA_PPP(x) (_Generic(typeof(***(x))***, typeof(x): (void ***)(x)))
+// T** (const not allowed on the T, T*) is changed to 'void**'
+#define _ARENA_PP(x) (_Generic((x), typeof_unqual(**(x))**: (void **)(x)))
+
+// T*** (const not allowed on the T* or T**) is is changed to 'void***'
+#define _ARENA_PPP(x) (_Generic((x), typeof(***(x))***: (void ***)(x)))
 
 // Triggers a warning if y is not a good type of pointer to be added to list x,
 // and casts y to (void *).
 #define _ARENA_APLI(x, y) ({typeof(***(x))* type_checked_item = (y); (void *)type_checked_item;})
-
-// T** gets changed to void**, but const T**, T* const *, and T** const not allowed.
-#define _AHASH_PTR(x) (_Generic(x, typeof_unqual(**(x))**: (void **)(x)))
 
 // T* and const T* pass through.  T is changed to T *.
 #define _AHASH_ITEM_PTR(x, i) (_Generic((i), \
@@ -836,24 +834,24 @@ static void ** apl_create(Arena * arena, size_t capacity)
   return list;
 }
 
-static inline APtrList * _apl_header(void ** list)
+static inline APtrList * _apl_header(void * const * list)
 {
-  assert(list && (size_t)list[-1] == (size_t)MAGIC_APL);
+  assert(list && ((size_t *)list)[-1] == (size_t)MAGIC_APL);
   return (APtrList *)((uint8_t *)list - sizeof(APtrList));
 }
 
-static inline size_t _apl_length(void ** list)
+static inline size_t _apl_length(void * const * list)
 {
   if (list == NULL) { return 0; }
   return _apl_header(list)->length;
 }
 
-static inline size_t _apl_capacity(void ** list)
+static inline size_t _apl_capacity(void * const * list)
 {
   return _apl_header(list)->capacity;
 }
 
-static void ** _apl_copy(void ** old_list, size_t capacity)
+static void ** _apl_copy(void * const * old_list, size_t capacity)
 {
   APtrList * old_apl = _apl_header(old_list);
 
@@ -963,9 +961,9 @@ template<typename T> static inline void apl_push(const T *** list, const T * ite
 }
 
 #else
-#define apl_length(list) (_apl_length(_ARENA_PP(list)))
-#define apl_capacity(list) (_apl_capacity(_ARENA_PP(list)))
-#define apl_copy(list, cap) ((typeof(**list)**)_apl_copy(_ARENA_PP(list), cap))
+#define apl_length(list) (_apl_length(_ARENA_PCP(list)))
+#define apl_capacity(list) (_apl_capacity(_ARENA_PCP(list)))
+#define apl_copy(list, cap) ((typeof(**list)**)_apl_copy(_ARENA_PCP(list), cap))
 #define apl_resize_capacity(list, c) (_apl_resize_capacity(_ARENA_PPP(list), c))
 #define apl_set_length(list, l) (_apl_set_length(_ARENA_PPP(list), l))
 #define apl_push(list, item) (_apl_push(_ARENA_PPP(list), _ARENA_APLI(list, item)))
@@ -1251,12 +1249,14 @@ typedef struct AByteSlice {
 //   (the item's location is not permanent: it can move when the table grows)
 //
 // T * ahash_update(T ** hash, const T * item);
+// T * ahash_update(T ** hash, T item);
 //   Copies the specified item into the hash table and returns a pointer to its
 //   new location (which is not permanent: it can move when the table
 //   grows).  If an item already existed in the hash table with the same key,
 //   this function overwrites it completely.
 //
 // T * ahash_find_or_update(T ** hash, const T * item, bool * found);
+// T * ahash_find_or_update(T ** hash, T item, bool * found);
 //   Looks for an item with the specified key.  If it is found, then
 //   this function sets *found to true.  If it is not found, this function
 //   sets *found to false and copies all the data from 'item' into the hash
@@ -1607,9 +1607,9 @@ template<typename T> static inline T * ahash_update(T ** hash, const T * item)
 #define ahash_length _ahash_length
 #define ahash_capacity _ahash_capacity
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
-#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_AHASH_PTR(hash), (c)))
-#define ahash_set_length(hash, l) (_ahash_set_length(_AHASH_PTR(hash), (l)))
+#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(hash), (c)))
+#define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(hash), (l)))
 #define ahash_find(hash, key) ((typeof(hash))_ahash_find((hash), _AHASH_KEY_PTR((hash), (key))))
-#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_AHASH_PTR(hash), _AHASH_ITEM_PTR(*(hash), (item)), (f)))
-#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_AHASH_PTR(hash), _AHASH_ITEM_PTR(*(hash), (item))))
+#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_ARENA_PP(hash), _AHASH_ITEM_PTR(*(hash), (item)), (f)))
+#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_ARENA_PP(hash), _AHASH_ITEM_PTR(*(hash), (item))))
 #endif

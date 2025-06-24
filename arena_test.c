@@ -110,6 +110,22 @@ void test_vsnprintf()
 }
 #pragma GCC diagnostic pop
 
+void test_c_typechecking()
+{
+#ifndef __cplusplus
+  (void)_ARENA_PP((int **)NULL);
+  //(void)_ARENA_PP((const int **)NULL);   // error in C
+  //(void)_ARENA_PP((int * const *)NULL);  // error in C
+  (void)_ARENA_PP((int ** const)NULL);  // error in C?
+
+  (void)_ARENA_PPP((int ***)NULL);
+  (void)_ARENA_PPP((const int ***)NULL);
+  //(void)_ARENA_PPP((int * const **)NULL);  // error in C
+  //(void)_ARENA_PPP((int ** const *)NULL);  // error in C
+  (void)_ARENA_PPP((int *** const)NULL);
+#endif
+}
+
 void test_arena_randomly()
 {
   for (size_t i = 0; i < ALLOC_REQUEST_COUNT; i++)
@@ -229,7 +245,6 @@ void test_apl()
 
   Foo * foo0 = arena_alloc1(&arena, Foo);
   apl_push(&foo_list, foo0);
-
 
   assert(apl_length(foo_list) == 1);
   assert(apl_capacity(foo_list) == 1);
@@ -520,6 +535,8 @@ int main()
   srand(time(NULL));
 
   test_vsnprintf();
+
+  test_c_typechecking();
 
   test_arena_randomly();
 
