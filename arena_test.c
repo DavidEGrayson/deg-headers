@@ -164,7 +164,7 @@ void test_astring()
   assert(0 == strcmp("Yep!", str2));
   assert(0 == strcmp("Yep! Expand.", str3));
 
-  //astr_clear(str2);  // warning in C, error in C++
+  //astr_clear(str2);  // error in C/C++
 
   // astr_set_length tests
   {
@@ -202,7 +202,7 @@ void test_astring()
     const char * cstr = str4;
     assert(astr_length(cstr) == 4);
     assert(astr_capacity(cstr) == 4);
-    //astr_set_length(&cstr, 0);  // warning in C, error in C++
+    //astr_set_length(&cstr, 0);  // error in C/C++
     str4_copy = astr_copy(cstr, 0);
   }
 
@@ -210,7 +210,7 @@ void test_astring()
     const char * const cstr = str4;
     assert(astr_length(cstr) == 4);
     assert(astr_capacity(cstr) == 4);
-    //astr_set_length(&cstr, 0);  // warning in C, error in C++
+    //astr_set_length(&cstr, 0);  // error in C/C++
     str4_copy = astr_copy(cstr, 0);
   }
 
@@ -221,7 +221,7 @@ void test_apl()
 {
   //apl_length((Foo *)NULL);  // error in C/C++
   //apl_resize_capacity((Foo **)NULL, 0);  // error in C/C++
-  //apl_push((Foo ***)NULL, (const Foo *)NULL);  // error in C++, warning in C
+  //apl_push((Foo ***)NULL, (const Foo *)NULL);  // warning in C, error in C++
 
   assert(apl_length((Foo **)NULL) == 0);
 
@@ -298,7 +298,7 @@ void test_apl()
     apl_push(&list, foo1);
     apl_push(&list, (const Foo *)foo1);
     copy_list_const = apl_copy(list, 0);
-    //copy_list = apl_copy(list, 0);   // warning in C, error in C++
+    //copy_list = apl_copy(list, 0);   // error in C/C++
   }
 
   {
@@ -308,7 +308,7 @@ void test_apl()
     //apl_set_length(&list, 0);  // error in C/C++
     //apl_push(&list, foo1);     // error in C/C++
     copy_list_const = apl_copy(list, 0);
-    //copy_list = apl_copy(list, 0);    // warning in C, error in C++
+    //copy_list = apl_copy(list, 0);    // error in C/C++
   }
 
   (void)copy_list;
@@ -374,19 +374,24 @@ void test_ahash_type_default()
   }
 
   // Constness tests.
-  // Maybe we should wait for C23 and typeof_unqual before we try to tackle these.
   {
-    // const KVPair * chash = hash;
-    // const int cint = 2;
+    const KVPair * chash = hash;
+    const int cint = 2;
 
-    // TODO: fix this compilation error on the following line in C
-    //assert(ahash_find(chash, 2)->value == 23);
+    ahash_length(chash);
+    ahash_capacity(chash);
 
-    // TODO: fix warning on the following line in C
-    //assert(ahash_find(chash, &cint)->value == 23);
+    assert(ahash_find(chash, 3)->value == 33);
+    assert(ahash_find(chash, &cint)->value == 22);
+    assert(ahash_find(hash, &cint)->value == 22);
 
-    // TODO: fix this compilation error on the following line in C
-    //assert(ahash_find(hash, &cint)->value == 23);
+    KVPair * copy = ahash_copy(chash, 0);
+    assert(ahash_length(copy) == 3);
+
+    //ahash_find_or_update(&chash, chash[0], NULL);  // error in C/C++
+
+    const KVPair tmp = { 0, 0 };
+    ahash_update(&chash, &tmp);  // TODO: error in C/C++
   }
 }
 

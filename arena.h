@@ -76,7 +76,7 @@
 
 // Expression that enforces that x's type matches T***, with the const qualifier
 // not allowed on the T* or T**, then casts it to 'void ***'
-#define _ARENA_PPP(x) (_Generic(typeof(***(x))***, default: (void ***)(x)))
+#define _ARENA_PPP(x) (_Generic(typeof(***(x))***, typeof(x): (void ***)(x)))
 
 // Triggers a warning if y is not a good type of pointer to be added to list x,
 // and casts y to (void *).
@@ -94,9 +94,11 @@
 // hash x, and also casts y to 'void *'.
 #define _AHASH_ITEM(x, y) ({typeof(**(x))* type_checked_item = (y); (void *)type_checked_item;})
 
-// This expression ensures that k is of type TK* or TK and converts k to TK*.
-#define _AHASH_KEY_P(x, k) (_Generic((const typeof(k))0, \
-  typeof((x)->key)*:(k), typeof((x)->key):(typeof(k)[1]){k}))
+// This expression ensures that k is of type TK*, TK, const TK*, or const TK,
+// and converts k to TK*.
+#define _AHASH_KEY_P(x, k) (_Generic((typeof_unqual(k))0, \
+  typeof_unqual((x)->key)*: (k), typeof_unqual((x)->key): (typeof_unqual(k)[1]){k}, \
+  const typeof_unqual((x)->key) *: (k)))
 
 #endif
 
@@ -415,7 +417,7 @@ static char * arena_vprintf(Arena * arena, const char * format, va_list ap)
     }
 
     // This block doesn't have enough space for the string.
-    arena_resize(arena, str, 0);  // make arenas stats more accurate
+    arena_resize(arena, str, 0);  // make arena stats more accurate
 
     capacity = result + 1;
     grew = true;
@@ -1359,20 +1361,20 @@ static inline void * _ahash_create(Arena * arena, size_t capacity, AKeyType type
   return list;
 }
 
-static inline AHash * _ahash_header(void * hash)
+static inline AHash * _ahash_header(const void * hash)
 {
   assert(((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   assert(hash && ((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   return (AHash *)((uint8_t *)hash - sizeof(AHash));
 }
 
-static inline size_t _ahash_length(void * hash)
+static inline size_t _ahash_length(const void * hash)
 {
   if (hash == NULL) { return 0; }
   return _ahash_header(hash)->length;
 }
 
-static inline size_t _ahash_capacity(void * hash)
+static inline size_t _ahash_capacity(const void * hash)
 {
   return _ahash_header(hash)->capacity;
 }
@@ -1432,7 +1434,7 @@ static void _ahash_resize_capacity(void ** hash, size_t capacity)
 }
 
 // Applies the hash function to the key of the item.
-static ArenaHashInt _ahash_calculate_hash(void * hash, void * key)
+static ArenaHashInt _ahash_calculate_hash(void * hash, const void * key)
 {
   AHash * ahash = _ahash_header(hash);
   switch (ahash->key_type)
@@ -1468,7 +1470,7 @@ static bool _ahash_compare(const void * hash, const void * key1, const void * ke
   }
 }
 
-static inline void * _ahash_find(const void * hash, void * key)
+static inline void * _ahash_find(const void * hash, const void * key)
 {
   const AHash * ahash = _ahash_header((void *)hash);
   size_t capacity = ahash->capacity;
@@ -1576,7 +1578,7 @@ template<typename T> static inline void ahash_resize_capacity(T ** hash, size_t 
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
-  decltype(((T*)0)->key) * item)
+  const decltype(((T*)0)->key) * item)
 {
   return (T *)_ahash_find((void *)hash, (void *)item);
 }
@@ -1601,7 +1603,7 @@ template<typename T> static inline T * ahash_update(T ** hash, T * item)
 #else
 #define ahash_length _ahash_length
 #define ahash_capacity _ahash_capacity
-#define ahash_copy(hash, cap) ((typeof(*hash)*)_ahash_copy(_AHASH(hash), (cap)))
+#define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy(_AHASH(hash), (cap)))
 #define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_AHASH_P(hash), (c)))
 #define ahash_set_length(hash, l) (_ahash_set_length(_AHASH_P(hash), (l)))
 #define ahash_find(hash, key) ((typeof(hash))_ahash_find(_AHASH(hash), _AHASH_KEY_P((hash), (key))))
