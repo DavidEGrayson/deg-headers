@@ -237,7 +237,6 @@ void test_apl()
 {
   //apl_length((Foo *)NULL);  // error in C/C++
   //apl_resize_capacity((Foo **)NULL, 0);  // error in C/C++
-  //apl_push((Foo ***)NULL, (const Foo *)NULL);  // warning in C, error in C++
 
   assert(apl_length((Foo **)NULL) == 0);
 
@@ -276,6 +275,9 @@ void test_apl()
   const Foo ** copy_list_const;
 
   {
+    // 000: nothing about the list is const
+    //apl_push(&foo_list, (const Foo *)foo0);     // warning in C, error in C++
+
     // 001: const list
     Foo ** const list = apl_copy(foo_list2, 0);
     assert(apl_length(list) == 2);
