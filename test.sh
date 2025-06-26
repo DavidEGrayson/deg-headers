@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-set -uex
+set -ue
 
-gcc -Wall -Wextra arena_test.c -o arena_test_c && ./arena_test_c || echo 'C fail'
+FLAGS="-Wall -Wextra "
+FLAGS+="-Wfatal-errors "
 
-g++ -Wall -Wextra arena_test.c -o arena_test_cpp && ./arena_test_cpp || echo 'C++ fail'
+set -x
+
+gcc $FLAGS arena_test.c -o arena_test_c && ./arena_test_c || echo 'C fail'
+
+g++ $FLAGS arena_test.c -o arena_test_cpp && ./arena_test_cpp || echo 'C++ fail'

@@ -39,7 +39,8 @@
 // and arena-allocated hash maps (AHash).
 //
 // Note: If compiling for C, you must use a modern compiler (GCC 13+) that
-// supports C23, since this code uses enums with a specified type.
+// supports C23, since this code uses enums with a specified type and
+// typeof_unqual.
 //
 // This documentation continues in the comments below.
 
@@ -70,6 +71,7 @@
 #define MAGIC_AHASH 0x89cdfacf3e414841  // "AHA>" + 4 non-ASCII bytes
 
 #ifndef __cplusplus
+
 // T** (possibly with const qualifiers) is changed to 'void * const *'
 #define _ARENA_PCP(x) (_Generic(typeof(**(x)), default: (void * const *)(x)))
 
@@ -79,17 +81,19 @@
 // T*** (const not allowed on the T* or T**) is is changed to 'void***'
 #define _ARENA_PPP(x) (_Generic((x), typeof(***(x))***: (void ***)(x)))
 
+// T* and const T* pass through.
+#define _ARENA_T_PTR(x, T) (_Generic((x), T *: (x), const T *: (x)))
+
+// Pointer to x after conversion to type T.
+#define _ARENA_T_VAL(x, T) ((T[1]){(x)})
+
+// T* and const T* pass through.  T gets converted to T*, but it has to be an
+// exact match, unlike _ARENA_T_VAL.
+#define _ARENA_T_PTR_OR_VAL(x, T) (_Generic((x), T *: (x), const T *: (x), T: (typeof(x)[1]){(x)}))
+
 // Triggers a warning if y is not a good type of pointer to be added to list x,
 // and casts y to (void *).
 #define _ARENA_APLI(x, y) ({typeof(***(x))* type_checked_item = (y); (void *)type_checked_item;})
-
-// T* and const T* pass through.  T is changed to T *.
-#define _AHASH_ITEM_PTR(x, i) (_Generic((i), \
-  typeof_unqual(*x) *: (i), const typeof_unqual(*x) *: (i), typeof_unqual(*x): (typeof_unqual(i)[1]){i}))
-
-// TK* and const TK* pass through.  TK is changed to TK *.
-#define _AHASH_KEY_PTR(x, k) (_Generic((k), \
-  typeof_unqual((x)->key) *: (k), const typeof_unqual((x)->key) *: (k), typeof_unqual((x)->key): (typeof_unqual(k)[1]){k}))
 
 #endif
 
@@ -1242,11 +1246,13 @@ typedef struct AByteSlice {
 //   This function increases the capacity to ensure it is a power of 2
 //   and greater than or eqaul to the length of the hash.
 //
-// T * ahash_find(const T * hash, const TK * key);
 // T * ahash_find(const T * hash, TK key);
+// T * ahash_find_p(const T * hash, const TK * key);
 //   Looks for an item with the specified key.  Returns a
 //   pointer to it if it exists, or NULL if it does not exist
 //   (the item's location is not permanent: it can move when the table grows)
+//   If you're curious why the ahash_find have to be separate ahash_find_p macros, see:
+//   https://gist.github.com/DavidEGrayson/44a54453af0ea0ec890c615b81dbbd0c
 //
 // T * ahash_update(T ** hash, const T * item);
 // T * ahash_update(T ** hash, T item);
@@ -1575,15 +1581,15 @@ template<typename T> static inline void ahash_resize_capacity(T ** hash, size_t 
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
-  const decltype(((T*)0)->key) * item)
-{
-  return (T *)_ahash_find((const void *)hash, item);
-}
-
-template<typename T> static inline T * ahash_find(const T * hash,
   decltype(((T*)0)->key) item)
 {
   return (T *)_ahash_find((const void *)hash, &item);
+}
+
+template<typename T> static inline T * ahash_find_p(const T * hash,
+  const decltype(((T*)0)->key) * key)
+{
+  return (T *)_ahash_find((const void *)hash, key);
 }
 
 template<typename T> static inline T * ahash_find_or_update(T ** hash,
@@ -1609,7 +1615,8 @@ template<typename T> static inline T * ahash_update(T ** hash, const T * item)
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
 #define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(hash), (c)))
 #define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(hash), (l)))
-#define ahash_find(hash, key) ((typeof(hash))_ahash_find((hash), _AHASH_KEY_PTR((hash), (key))))
-#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_ARENA_PP(hash), _AHASH_ITEM_PTR(*(hash), (item)), (f)))
-#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_ARENA_PP(hash), _AHASH_ITEM_PTR(*(hash), (item))))
+#define ahash_find(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_VAL((k), typeof_unqual((hash)->key))))
+#define ahash_find_p(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_PTR((k), typeof_unqual((hash)->key))))
+#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_ARENA_PP(hash), _ARENA_T_PTR_OR_VAL((item), typeof(**hash)), (f)))
+#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_ARENA_PP(hash), _ARENA_T_PTR_OR_VAL((item), typeof(**hash))))
 #endif

@@ -379,9 +379,9 @@ void test_ahash_type_default()
     assert(ahash_find(hash, -1) == NULL);
     assert(ahash_find(hash, 2)->value == 22);
     int key = 1;
-    assert(ahash_find(hash, &key)->value == 11);
+    assert(ahash_find_p(hash, &key)->value == 11);
     int ckey = 2;
-    assert(ahash_find(hash, &ckey)->value == 22);
+    assert(ahash_find_p(hash, &ckey)->value == 22);
   }
 
   ahash_resize_capacity(&hash, 17);
@@ -404,7 +404,7 @@ void test_ahash_type_default()
     ahash_length(chash);
     ahash_capacity(chash);
     assert(ahash_find(chash, 3)->value == 33);
-    assert(ahash_find(chash, &cint)->value == 22);
+    assert(ahash_find_p(chash, &cint)->value == 22);
     KVPair * copy = ahash_copy(chash, 0);
     assert(ahash_length(copy) == 3);
     //ahash_find_or_update(&chash, chash[0], NULL);  // error in C/C++
@@ -417,7 +417,7 @@ void test_ahash_type_default()
     ahash_length(chash2);
     ahash_capacity(chash2);
     assert(ahash_find(chash2, 3)->value == 33);
-    assert(ahash_find(chash2, &cint)->value == 22);
+    assert(ahash_find_p(chash2, &cint)->value == 22);
     KVPair * copy2 = ahash_copy(chash2, 0);
     assert(ahash_length(copy2) == 3);
     //ahash_find_or_update(&chash2, chash2[0], NULL);  // error in C/C++
@@ -476,11 +476,10 @@ void test_ahash_type_string()
   }
 
   {
-    // TODO: after upgrading to C23, get rid of cast on next line?
-    assert(ahash_find(hash, (const char *)"a") == NULL);
+    assert(ahash_find(hash, "a") == NULL);
     const char * key = "abcd";
     assert(ahash_find(hash, key)->key == str1);
-    assert(ahash_find(hash, &key)->key == str1);
+    assert(ahash_find_p(hash, &key)->key == str1);
   }
 
   assert(hash[0].key == str1);
