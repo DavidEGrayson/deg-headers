@@ -769,7 +769,7 @@ static inline char * astr_compact_into_cstr(char * str)
 //   Creates a new AList that is a copy of the specified AList, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
-// void ali_resize_capacity(T ** list, size_t capacity)
+// void ali_resize_capacity(T * & list, size_t capacity)
 //   Changes the capacity of the AList without changing its contents.
 //   If you specify a capacity less than the current list length, it will
 //   automatically be increased to be equal to the list length.
@@ -778,11 +778,11 @@ static inline char * astr_compact_into_cstr(char * str)
 //   you didn't allocate anything from that arena after the last time the
 //   list capacity changed).
 //
-// void ali_set_length(T ** list, size_t length)
+// void ali_set_length(T * & list, size_t length)
 //   Set the length of the AList, increasing the capacity if necessary.
 //   Any new items added to the list are initialized by setting them to zero.
 //
-// void ali_push(T ** list, T item)
+// void ali_push(T * & list, T item)
 //   Adds the specified item to the end of the AList, growing the list's
 //   capacity if necessary.
 //   To avoid O(N^2) problems, when this function grows the list, it makes
@@ -798,10 +798,11 @@ static inline char * astr_compact_into_cstr(char * str)
 // "const T *" means the function takes an AList and does not modify
 // the list or the objects it points to.
 //
-// "T **" means the function takes a pointer to an AList.  The function
-// modifies the AList and if the list grows, then it might move to a different
-// location if it grows, invalidating the old AList object and any "T *"
-// objects pointing to it.
+// "T * &" means the function takes a *reference* to an AList (implemented using
+// pointers in C).  The function modifies the AList and if the list grows, then
+// it might move to a different location, invalidating the old AList object and
+// any other "T *" objects pointing to it.  The function uses the reference
+// to update the "T *" object you pass to it.
 
 typedef struct AList {
   Arena * arena;
@@ -928,31 +929,32 @@ static inline void * _ali_push0(void ** list)
 #define ali_capacity _ali_capacity
 
 #ifdef __cplusplus
+
 template <typename T> static inline T * ali_copy(const T * list, size_t capacity)
 {
   return (T *)_ali_copy(list, capacity);
 }
 
-template<typename T> static inline void ali_resize_capacity(T ** list, size_t capacity)
+template<typename T> static inline void ali_resize_capacity(T * & list, size_t capacity)
 {
-  _ali_resize_capacity((void **)list, capacity);
+  _ali_resize_capacity((void **)&list, capacity);
 }
 
-template<typename T> static inline void ali_set_length(T ** list, size_t length)
+template<typename T> static inline void ali_set_length(T * & list, size_t length)
 {
-  _ali_set_length((void **)list, length);
+  _ali_set_length((void **)&list, length);
 }
 
-template<typename T, typename U> static inline void ali_push(T ** list, U item)
+template<typename T, typename U> static inline void ali_push(T * & list, U item)
 {
-  *(T *)_ali_push0((void **)list) = item;
+  *(T *)_ali_push0((void **)&list) = item;
 }
 
 #else
 #define ali_copy(list, cap) ((typeof_unqual(*list)*)_ali_copy((list), cap))
-#define ali_resize_capacity(list, cap) (_ali_resize_capacity(_ARENA_PP(list), cap))
-#define ali_set_length(list, length) (_ali_set_length(_ARENA_PP(list), length))
-#define ali_push(list, item) (*(typeof(*list))_ali_push0(_ARENA_PP(list)) = (item))
+#define ali_resize_capacity(list, cap) (_ali_resize_capacity(_ARENA_PP(&list), cap))
+#define ali_set_length(list, length) (_ali_set_length(_ARENA_PP(&list), length))
+#define ali_push(list, item) (*(typeof(list))_ali_push0(_ARENA_PP(&list)) = (item))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////
