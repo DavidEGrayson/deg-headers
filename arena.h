@@ -35,7 +35,7 @@
 //
 // This header also provides code that makes it easy to work with
 // an arena-allocated null-terminated string (AString),
-// an arena-allocated null-terminated lists of pointers (APtrList),
+// an arena-allocated list of arbitrary itels (AList),
 // and arena-allocated hash maps (AHash).
 //
 // Note: If compiling for C, you must use a modern compiler (GCC 13+) that
@@ -67,19 +67,13 @@
 #endif
 
 #define MAGIC_ASTR  0xa3bff2a73e545341  // "AST>" + 4 non-ASCII bytes
-#define MAGIC_APL   0xb4a888b43e4c5041  // "APL>" + 4 non-ASCII bytes
+#define MAGIC_ALI   0xb4a888b43e494c41  // "ALI>" + 4 non-ASCII bytes
 #define MAGIC_AHASH 0x89cdfacf3e414841  // "AHA>" + 4 non-ASCII bytes
 
 #ifndef __cplusplus
 
-// T** (possibly with const qualifiers) is changed to 'void * const *'
-#define _ARENA_PCP(x) (_Generic(typeof(**(x)), default: (void * const *)(x)))
-
 // T** (const not allowed on the T, T*) is changed to 'void**'
 #define _ARENA_PP(x) (_Generic((x), typeof_unqual(**(x))**: (void **)(x)))
-
-// T*** (const not allowed on the T* or T**) is is changed to 'void***'
-#define _ARENA_PPP(x) (_Generic((x), typeof(***(x))***: (void ***)(x)))
 
 // T* and const T* pass through.
 #define _ARENA_T_PTR(x, T) (_Generic((x), T *: (x), const T *: (x)))
@@ -90,10 +84,6 @@
 // T* and const T* pass through.  T gets converted to T*, but it has to be an
 // exact match, unlike _ARENA_T_VAL.
 #define _ARENA_T_PTR_OR_VAL(x, T) (_Generic((x), T *: (x), const T *: (x), T: (typeof(x)[1]){(x)}))
-
-// Triggers a warning if y is not a good type of pointer to be added to list x,
-// and casts y to (void *).
-#define _ARENA_APLI(x, y) ({typeof(***(x))* type_checked_item = (y); (void *)type_checked_item;})
 
 #endif
 
@@ -745,231 +735,232 @@ static inline char * astr_compact_into_cstr(char * str)
   }
 }
 
-//// APtrList //////////////////////////////////////////////////////////////////
-// An APtrList (apl for short) is a resizable, null-terminated list of
-// pointers stored in an arena.
+//// AList /////////////////////////////////////////////////////////////////////
+// An AList (ali for short) is a resizable, null-terminated list of arbitrary
+// C objects stored in an arena.
 //
-// An APtrList for objects of type T is represented by the C/C++ type "T **".
+// An AList for objects of type T is represented by the C/C++ type "T *",
+// which points to the beginning of the list.
 // Since the list is null-terminated, it can be easily iterated by any code
 // without needing to use this library.
 //
-// The memory layout of the APtrList is:
-//   APtrList header;
-//   T * pointers[capacity + 1];
+// The memory layout of the AList is:
+//   AList header;
+//   T items[capacity + 1];
 //
-// Public interface for APtrList:
+// Public interface for AList:
 //
-// T ** apl_create(Arena *, size_t capacity);
+// T * ali_create(Arena *, size_t capacity, T);
 //   Creates a list that has enough memory to hold the specified number of
-//   pointers.  Specify 0 as the capacity to use a reasonable default.
+//   objects ot type T, not counting the final null-terminator object.
+//   Specify 0 as the capacity to use a reasonable default.
+//   Note that ali_create is a macro, and T is actually a type,
 //
-// size_t apl_length(const T * const * list)
-//   Gets the number of pointers stored in the APtrList (not counting the null
+// size_t ali_length(const T * list)
+//   Gets the number of items stored in the AList (not counting the null
 //   terminator).
 //
-// size_t apl_capacity(const T * const * list)
-//   Gets the capacity of the APtrList, which is the number of pointers it could
+// size_t ali_capacity(const T * list)
+//   Gets the capacity of the AList, which is the number of items it could
 //   store (not counting the null terminator) without needing to allocate more
 //   memory.
 //
-// T** apl_copy(const T * const * list, size_t capacity)
-//   Creates a new APtrList that is a copy of the specified APtrList, with a
+// T* ali_copy(const T * list, size_t capacity)
+//   Creates a new AList that is a copy of the specified AList, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
-// void apl_resize_capacity(T *** list, size_t capacity)
-//   Changes the capacity of the APtrList without changing its contents.
+// void ali_resize_capacity(T ** list, size_t capacity)
+//   Changes the capacity of the AList without changing its contents.
 //   If you specify a capacity less than the current list length, it will
 //   automatically be increased to be equal to the list length.
+//   Passing 0 is a good way to resize the list to the minimal size needed,
+//   returning all unneeded memory to the arena (which only works if
+//   you didn't allocate anything from that arena after the last time the
+//   list capacity changed).
 //
-// void apl_set_length(T *** list, size_t length)
-//   Set the length of the APtrList, increasing the capacity if necessary.
-//   Any new pointers added to the list are initialized to NULL.
+// void ali_set_length(T ** list, size_t length)
+//   Set the length of the AList, increasing the capacity if necessary.
+//   Any new items added to the list are initialized by setting them to zero.
 //
-// void apl_push(T *** list, T * item)
-//   Adds the specified item to the end of the APtrList, growing the list's
+// void ali_push(T ** list, T item)
+//   Adds the specified item to the end of the AList, growing the list's
 //   capacity if necessary.
-//   Note: To avoid O(N^2) problems, when this function grows the list's
-//   capacity, it makes the capacity be double what is needed.  To avoid this,
-//   you can call `apl_resize_capacity` or `apl_set_length` beforehand to
-//   ensure the list doesn't need to grow.  Alternatively, you can call
-//   `astr_resize_capacity(&str, 0)` to release the extra space back to the
-//   arena, which is only possible if you didn't allocate anything from that
-//   arena after the last time the list grew).
+//   To avoid O(N^2) problems, when this function grows the list, it makes
+//   the capacity be double what is needed.
 //
-// TODO: functions for removing items from APtrList
+// TODO: functions for removing items from AList
 //
 // Further explanations:
 //
-// In the documentation above, "T *" is the type of pointer that the user wants
-// to store in the list: T will typically be a struct, and it could include a
-// const modifier if you are working with objects you don't want to change.
+// In the documentation above, "T" is the type of item that the user wants
+// to store in the list: T can be any C object, including a pointer or struct.
 //
-// "const T * const *" means the function takes an APtrList and does not modify
+// "const T *" means the function takes an AList and does not modify
 // the list or the objects it points to.
 //
-// "T ***" means the function takes a pointer to an APtrList.  The function
-// modifies the APtrList and might need to move it to a different location
-// if it grows, invalidating the old APtrList object.
-//
-// The list can contain pointers to different types if you want, you just have
-// to do the appropriate casts.  It can also contain NULL pointers.
+// "T **" means the function takes a pointer to an AList.  The function
+// modifies the AList and if the list grows, then it might move to a different
+// location if it grows, invalidating the old AList object and any "T *"
+// objects pointing to it.
 
-typedef struct APtrList {
+typedef struct AList {
   Arena * arena;
-  size_t length;    // number of pointers stored, not counting the NULL terminator
+  size_t length;    // number of items stored, not counting the NULL terminator
   size_t capacity;  // maximum length we can accomodate without resizing
+  uint32_t item_size;
   size_t magic;
-} APtrList;
+} AList;
 
-static_assert(alignof(APtrList) == sizeof(void *));
+static_assert(alignof(AList) == sizeof(void *));
 
-static void ** apl_create(Arena * arena, size_t capacity)
+static void * _ali_create(Arena * arena, size_t capacity, size_t item_size, size_t item_alignment)
 {
+  // When we allocate the block for the AList header and item array, we will
+  // just align it using alignof(AList), then add sizeof(AList) to it, and
+  // assume that is aligned enough for the item array.
+  assert(alignof(AList) % item_alignment == 0);
+  assert(sizeof(AList) % item_alignment == 0);
+  assert(item_size % item_alignment == 0);
+
   if (capacity == 0) { capacity = ARENA_SMALL_LIST_SIZE; }
-  size_t size = sizeof(APtrList) + (capacity + 1) * sizeof(void *);
-  APtrList * apl = (APtrList *)arena_alloc_no_init(arena, size, alignof(APtrList));
-  apl->arena = arena;
-  apl->length = 0;
-  apl->capacity = capacity;
-  apl->magic = MAGIC_APL;
-  void ** list = (void **)((uint8_t *)apl + sizeof(APtrList));
-  list[0] = NULL;
+  size_t size = sizeof(AList) + (capacity + 1) * item_size;
+  AList * ali = (AList *)arena_alloc_no_init(arena, size, alignof(AList));
+  ali->arena = arena;
+  ali->length = 0;
+  ali->capacity = capacity;
+  ali->item_size = item_size;
+  ali->magic = MAGIC_ALI;
+  void * list = (void *)((uint8_t *)ali + sizeof(AList));
+  memset(list, 0, item_size);
   return list;
 }
 
-static inline APtrList * _apl_header(void * const * list)
+static inline AList * _ali_header(const void * list)
 {
-  assert(list && ((size_t *)list)[-1] == (size_t)MAGIC_APL);
-  return (APtrList *)((uint8_t *)list - sizeof(APtrList));
+  assert(list && ((size_t *)list)[-1] == (size_t)MAGIC_ALI);
+  return (AList *)((uint8_t *)list - sizeof(AList));
 }
 
-static inline size_t _apl_length(void * const * list)
+static inline size_t _ali_length(const void * list)
 {
   if (list == NULL) { return 0; }
-  return _apl_header(list)->length;
+  return _ali_header(list)->length;
 }
 
-static inline size_t _apl_capacity(void * const * list)
+static inline size_t _ali_capacity(const void * list)
 {
-  return _apl_header(list)->capacity;
+  return _ali_header(list)->capacity;
 }
 
-static void ** _apl_copy(void * const * old_list, size_t capacity)
+static void * _ali_copy(const void * old_list, size_t capacity)
 {
-  APtrList * old_apl = _apl_header(old_list);
+  AList * old_h = _ali_header(old_list);
 
-  if (capacity < old_apl->length) { capacity = old_apl->length; }
+  if (capacity < old_h->length) { capacity = old_h->length; }
 
-  void ** list = apl_create(old_apl->arena, capacity);
-  APtrList * apl = _apl_header(list);
+  void * list = _ali_create(old_h->arena, capacity, old_h->item_size, 1);
+  AList * h = _ali_header(list);
 
-  apl->length = old_apl->length;
-  memcpy(list, old_list, old_apl->length * sizeof(void *));
-  list[apl->length] = NULL;
+  h->length = old_h->length;
+  memcpy(list, old_list, (old_h->length + 1) * old_h->item_size);
   return list;
 }
 
-static void _apl_resize_capacity(void *** list, size_t new_capacity)
+static void _ali_resize_capacity(void ** list, size_t new_capacity)
 {
   assert(list);
-  APtrList * apl = _apl_header(*list);
+  AList * h = _ali_header(*list);
 
-  if (new_capacity < apl->length) { new_capacity = apl->length; }
+  if (new_capacity < h->length) { new_capacity = h->length; }
 
-  size_t size = sizeof(APtrList) + (new_capacity + 1) * sizeof(void *);
-  if (arena_resize(apl->arena, apl, size) || new_capacity <= apl->capacity)
+  size_t size = sizeof(AList) + (new_capacity + 1) * sizeof(void *);
+  if (arena_resize(h->arena, h, size) || new_capacity <= h->capacity)
   {
     // Either we successfully grew the list in place because there was space in
     // the current block and the list was the last thing allocated, or we
     // are shrinking the capacity.
-    apl->capacity = new_capacity;
+    h->capacity = new_capacity;
     return;
   }
 
-  APtrList * old_apl = apl;
-  void ** old_list = *list;
+  AList * old_h = h;
+  void * old_list = *list;
 
-  *list = _apl_copy(*list, new_capacity);
+  *list = _ali_copy(old_list, new_capacity);
 
   // The old object is not valid anymore: try to prevent its use.
-  _arena_invalidate_magic(&old_apl->magic);
-  old_apl->length = 0;
-  old_list[0] = NULL;
+  _arena_invalidate_magic(&old_h->magic);
+  old_h->length = 0;
+  memset(old_h, 0, old_h->item_size);
 }
 
-static inline void _apl_set_length(void *** list, size_t length)
+static inline void _ali_set_length(void ** list, size_t length)
 {
   assert(list);
-  APtrList * apl = _apl_header(*list);
-  if (length > apl->capacity) { _apl_resize_capacity(list, length); }
-  for (size_t i = apl->length; i < length; i++) { (*list)[i] = NULL; }
-  apl->length = length;
-  (*list)[apl->length] = 0;
-}
-
-static inline void _apl_push(void *** list, void * item)
-{
-  assert(list);
-  APtrList * apl = _apl_header(*list);
-  if (apl->length >= apl->capacity)
+  AList * h = _ali_header(*list);
+  if (length > h->capacity) { _ali_resize_capacity(list, length); }
+  if (length > h->length)
   {
-    size_t new_capacity = apl->length + 1;
-    if (new_capacity <= SIZE_MAX / 2) { new_capacity *= 2; }
-    _apl_resize_capacity(list, new_capacity);
-    apl = _apl_header(*list);
+    memset((uint8_t *)*list + h->length * h->item_size, 0, (length - h->length) * h->item_size);
   }
-  (*list)[apl->length++] = item;
-  (*list)[apl->length] = NULL;
+  h->length = length;
+  memset((uint8_t *)*list + h->length * h->item_size, 0, h->item_size);
 }
+
+// TODO: I think this needs to be implemented better so we can push
+// 'char' to a list of 'ints', etc.  The macro should include an actual
+// assignment to this list.
+static inline void _ali_push(void ** list, void * item)
+{
+  assert(list);
+  AList * h = _ali_header(*list);
+  if (h->length >= h->capacity)
+  {
+    size_t new_capacity = h->length + 1;
+    if (new_capacity <= SIZE_MAX / 2) { new_capacity *= 2; }
+    _ali_resize_capacity(list, new_capacity);
+    h = _ali_header(*list);
+  }
+  memcpy((uint8_t *)*list + h->length * h->item_size, item, h->item_size);
+  h->length++;
+  memset((uint8_t *)*list + h->length * h->item_size, 0, h->item_size);
+}
+
+#define ali_create(arena, capacity, T) ((T *)_ali_create((arena), (capacity), sizeof(T), alignof(T)))
+#define ali_length _ali_length
+#define ali_capacity _ali_capacity
 
 #ifdef __cplusplus
-template <typename T> static inline size_t apl_length(T * const * list)
+template <typename T> static inline T * ali_copy(const T * list, size_t capacity)
 {
-  return _apl_length((void **)list);
+  return (T *)_ali_copy(list, capacity);
 }
 
-template <typename T> static inline size_t apl_capacity(T * const * list)
+template<typename T> static inline void ali_resize_capacity(T ** list, size_t capacity)
 {
-  return _apl_capacity((void **)list);
+  return _ali_resize_capacity((void **)list, capacity);
 }
 
-template <typename T> static inline T ** apl_copy(T * const * list, size_t capacity)
+template<typename T> static inline void ali_set_length(T ** list, size_t length)
 {
-  return (T **)_apl_copy((void **)list, capacity);
+  return _ali_set_length((void **)list, length);
 }
 
-template<typename T> static inline void apl_resize_capacity(T *** list, size_t capacity)
+template<typename T> static inline void ali_push(T ** list, T item)
 {
-  return _apl_resize_capacity((void ***)list, capacity);
+  return _ali_push((void **)list, &item);
 }
 
-template<typename T> static inline void apl_set_length(T *** list, size_t length)
+template<typename T> static inline void ali_push(const T *** list, T * item)
 {
-  return _apl_set_length((void ***)list, length);
-}
-
-template<typename T> static inline void apl_push(T *** list, T * item)
-{
-  return _apl_push((void ***)list, item);
-}
-
-template<typename T> static inline void apl_push(const T *** list, T * item)
-{
-  return _apl_push((void ***)list, item);
-}
-
-template<typename T> static inline void apl_push(const T *** list, const T * item)
-{
-  return _apl_push((void ***)list, (void *)item);
+  return _ali_push((void **)list, &item);
 }
 
 #else
-#define apl_length(list) (_apl_length(_ARENA_PCP(list)))
-#define apl_capacity(list) (_apl_capacity(_ARENA_PCP(list)))
-#define apl_copy(list, cap) ((typeof(**list)**)_apl_copy(_ARENA_PCP(list), cap))
-#define apl_resize_capacity(list, c) (_apl_resize_capacity(_ARENA_PPP(list), c))
-#define apl_set_length(list, l) (_apl_set_length(_ARENA_PPP(list), l))
-#define apl_push(list, item) (_apl_push(_ARENA_PPP(list), _ARENA_APLI(list, item)))
+#define ali_copy(list, cap) ((typeof(**list)**)_ali_copy((list), cap))
+#define ali_resize_capacity(list, cap) (_ali_resize_capacity(_ARENA_PP(list), cap))
+#define ali_set_length(list, length) (_ali_set_length(_ARENA_PP(list), length))
+#define ali_push(list, item) (_ali_push(_ARENA_PP(list), _ARENA_T_VAL((item), typeof(**(list)))))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////
@@ -1557,18 +1548,10 @@ static inline void * _ahash_update(void ** hash, const void * item)
 
 
 #define ahash_create(arena, capacity, type, T) ((T *)_ahash_create((arena), (capacity), (type), sizeof(((T*)0)->key), sizeof(T), alignof(T)))
+#define ahash_length _ahash_length
+#define ahash_capacity _ahash_capacity
 
 #ifdef __cplusplus
-template <typename T> static inline size_t ahash_length(const T * hash)
-{
-  return _ahash_length((const void *)hash);
-}
-
-template <typename T> static inline size_t ahash_capacity(const T * hash)
-{
-  return _ahash_capacity((const void *)hash);
-}
-
 template <typename T> static inline T * ahash_copy(const T * hash, size_t capacity)
 {
   return (T *)_ahash_copy((const void *)hash, capacity);
@@ -1609,8 +1592,6 @@ template<typename T> static inline T * ahash_update(T ** hash, const T * item)
 }
 
 #else
-#define ahash_length _ahash_length
-#define ahash_capacity _ahash_capacity
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
 #define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(hash), (c)))
 #define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(hash), (l)))

@@ -117,12 +117,6 @@ void test_c_typechecking()
   //(void)_ARENA_PP((const int **)NULL);   // error in C
   //(void)_ARENA_PP((int * const *)NULL);  // error in C
   (void)_ARENA_PP((int ** const)NULL);  // error in C?
-
-  (void)_ARENA_PPP((int ***)NULL);
-  (void)_ARENA_PPP((const int ***)NULL);
-  //(void)_ARENA_PPP((int * const **)NULL);  // error in C
-  //(void)_ARENA_PPP((int ** const *)NULL);  // error in C
-  (void)_ARENA_PPP((int *** const)NULL);
 #endif
 }
 
@@ -233,41 +227,40 @@ void test_astring()
   (void)str4_copy;
 }
 
-void test_apl()
+void test_ali_pointers()
 {
-  //apl_length((Foo *)NULL);  // error in C/C++
-  //apl_resize_capacity((Foo **)NULL, 0);  // error in C/C++
+  //ali_resize_capacity((Foo *)NULL, 0);  // error in C/C++
 
-  assert(apl_length((Foo **)NULL) == 0);
+  assert(ali_length(NULL) == 0);
 
-  Foo ** foo_list = (Foo **)apl_create(&arena, 1);
+  Foo ** foo_list = ali_create(&arena, 1, Foo *);
 
   Foo * foo0 = arena_alloc1(&arena, Foo);
-  apl_push(&foo_list, foo0);
+  ali_push(&foo_list, foo0);
 
-  assert(apl_length(foo_list) == 1);
-  assert(apl_capacity(foo_list) == 1);
+  assert(ali_length(foo_list) == 1);
+  assert(ali_capacity(foo_list) == 1);
   assert(foo_list[0] == foo0);
   assert(foo_list[1] == NULL);
 
   Foo * foo1 = arena_alloc1(&arena, Foo);
-  apl_push(&foo_list, foo1);
-  assert(apl_length(foo_list) == 2);
-  assert(apl_capacity(foo_list) == 4);
+  ali_push(&foo_list, foo1);
+  assert(ali_length(foo_list) == 2);
+  assert(ali_capacity(foo_list) == 4);
   assert(foo_list[0] == foo0);
   assert(foo_list[1] == foo1);
   assert(foo_list[2] == NULL);
 
-  Foo ** foo_list2 = apl_copy(foo_list, 0);
+  Foo ** foo_list2 = ali_copy(foo_list, 0);
 
-  apl_set_length(&foo_list, 1);
+  ali_set_length(&foo_list, 1);
   assert(foo_list[0] == foo0);
   assert(foo_list[1] == NULL);
 
   assert(foo_list2[1] == foo1);
 
-  apl_resize_capacity(&foo_list, 8);
-  assert(apl_capacity(foo_list) == 8);
+  ali_resize_capacity(&foo_list, 8);
+  assert(ali_capacity(foo_list) == 8);
 
   // APtrList const tests: so many cases to test!
 
@@ -276,58 +269,58 @@ void test_apl()
 
   {
     // 000: nothing about the list is const
-    //apl_push(&foo_list, (const Foo *)foo0);     // warning in C, error in C++
+    //ali_push(&foo_list, (const Foo *)foo0);     // warning in C, error in C++
   }
 
   {
     // 001: const list
-    Foo ** const list = apl_copy(foo_list2, 0);
-    assert(apl_length(list) == 2);
-    //apl_set_length(&list, 0);  // error in C/C++
-    //apl_push(&list, foo0);     // error in C/C++
-    copy_list_const = (const Foo **)apl_copy(list, 0);  // safe, but cast required
-    copy_list = apl_copy(list, 0);
+    Foo ** const list = ali_copy(foo_list2, 0);
+    assert(ali_length(list) == 2);
+    //ali_set_length(&list, 0);  // error in C/C++
+    //ali_push(&list, foo0);     // error in C/C++
+    copy_list_const = (const Foo **)ali_copy(list, 0);  // safe, but cast required
+    copy_list = ali_copy(list, 0);
   }
 
   {
-    // 010: const pointers: kinda weird
-    Foo * const * list = apl_copy(foo_list2, 0);
-    assert(apl_length(list) == 2);
-    //apl_set_length(&list, 0);  // error in C/C++
-    //apl_push(&list, foo1);     // error in C/C++
-    copy_list_const = (const Foo **)apl_copy(list, 0); // safe, but cast required
-    copy_list = apl_copy(list, 0);
+    // 010: const items
+    Foo * const * list = ali_copy(foo_list2, 0);
+    assert(ali_length(list) == 2);
+    //ali_set_length(&list, 0);  // error in C/C++
+    //ali_push(&list, foo1);     // error in C/C++
+    copy_list_const = (const Foo **)ali_copy(list, 0); // safe, but cast required
+    copy_list = ali_copy(list, 0);
   }
 
   {
-    // 011: const list and pointers
-    Foo * const * const list = apl_copy(foo_list2, 0);
-    assert(apl_length(list) == 2);
-    //apl_set_length(&list, 0);  // error in C/C++
-    //apl_push(&list, foo1);     // error in C/C++
-    copy_list_const = (const Foo **)apl_copy(list, 0); // safe, but cast required
-    copy_list = apl_copy(list, 0);
+    // 011: const list and items
+    Foo * const * const list = ali_copy(foo_list2, 0);
+    assert(ali_length(list) == 2);
+    //ali_set_length(&list, 0);  // error in C/C++
+    //ali_push(&list, foo1);     // error in C/C++
+    copy_list_const = (const Foo **)ali_copy(list, 0); // safe, but cast required
+    copy_list = ali_copy(list, 0);
   }
 
   {
     // 100: underlying objects const
-    const Foo ** list = (const Foo **)apl_copy(foo_list2, 0);
-    assert(apl_length(list) == 2);
-    apl_set_length(&list, 0);
-    apl_push(&list, foo1);
-    apl_push(&list, (const Foo *)foo1);
-    copy_list_const = apl_copy(list, 0);
-    //copy_list = apl_copy(list, 0);   // error in C/C++
+    const Foo ** list = (const Foo **)ali_copy(foo_list2, 0);
+    assert(ali_length(list) == 2);
+    ali_set_length(&list, 0);
+    ali_push(&list, foo1);
+    ali_push(&list, (const Foo *)foo1);
+    copy_list_const = ali_copy(list, 0);
+    //copy_list = ali_copy(list, 0);   // error in C/C++
   }
 
   {
     // 111: everything const
     const Foo * const * const list = (const Foo **)foo_list2;
-    assert(apl_length(list) == 2);
-    //apl_set_length(&list, 0);  // error in C/C++
-    //apl_push(&list, foo1);     // error in C/C++
-    copy_list_const = apl_copy(list, 0);
-    //copy_list = apl_copy(list, 0);    // error in C/C++
+    assert(ali_length(list) == 2);
+    //ali_set_length(&list, 0);  // error in C/C++
+    //ali_push(&list, foo1);     // error in C/C++
+    copy_list_const = ali_copy(list, 0);
+    //copy_list = ali_copy(list, 0);    // error in C/C++
   }
 
   (void)copy_list;
@@ -547,7 +540,7 @@ int main()
 
   test_astring();
 
-  test_apl();
+  test_ali_pointers();
 
   test_ahash_type_default();
   test_ahash_type_string();
@@ -557,3 +550,5 @@ int main()
 
   //hexdump_arena(&arena);
 }
+
+// TODO: new brace style to save LOC (opening brace doesn't always get its own line)
