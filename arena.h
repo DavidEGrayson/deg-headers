@@ -215,7 +215,7 @@ static void arena_done_with_block(Arena * arena)
 }
 
 // Allocates a new block with the specified number of bytes available for
-// payload data (and stop allocates from the current block).  This function
+// payload data (and stop allocating from the current block).  This function
 // should probably not be used in most applications but it could be useful for
 // testing of low-level code.
 static void arena_start_new_block(Arena * arena, size_t payload_size)
@@ -437,7 +437,6 @@ static inline void _arena_invalidate_magic(uint64_t * m)
 {
   *m = (*m & ~0xFF000000) | ('-' << 24);
 }
-
 
 // The container types below depend on these being true:
 static_assert(alignof(void *) == sizeof(void *));

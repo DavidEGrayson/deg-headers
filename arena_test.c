@@ -277,7 +277,9 @@ void test_apl()
   {
     // 000: nothing about the list is const
     //apl_push(&foo_list, (const Foo *)foo0);     // warning in C, error in C++
+  }
 
+  {
     // 001: const list
     Foo ** const list = apl_copy(foo_list2, 0);
     assert(apl_length(list) == 2);
