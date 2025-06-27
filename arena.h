@@ -907,10 +907,7 @@ static inline void _ali_set_length(void ** list, size_t length)
   memset((uint8_t *)*list + h->length * h->item_size, 0, h->item_size);
 }
 
-// TODO: I think this needs to be implemented better so we can push
-// 'char' to a list of 'ints', etc.  The macro should include an actual
-// assignment to this list.
-static inline void _ali_push(void ** list, void * item)
+static inline void * _ali_push0(void ** list)
 {
   assert(list);
   AList * h = _ali_header(*list);
@@ -921,9 +918,9 @@ static inline void _ali_push(void ** list, void * item)
     _ali_resize_capacity(list, new_capacity);
     h = _ali_header(*list);
   }
-  memcpy((uint8_t *)*list + h->length * h->item_size, item, h->item_size);
   h->length++;
   memset((uint8_t *)*list + h->length * h->item_size, 0, h->item_size);
+  return (uint8_t *)*list + (h->length - 1) * h->item_size;
 }
 
 #define ali_create(arena, capacity, T) ((T *)_ali_create((arena), (capacity), sizeof(T), alignof(T)))
@@ -938,29 +935,24 @@ template <typename T> static inline T * ali_copy(const T * list, size_t capacity
 
 template<typename T> static inline void ali_resize_capacity(T ** list, size_t capacity)
 {
-  return _ali_resize_capacity((void **)list, capacity);
+  _ali_resize_capacity((void **)list, capacity);
 }
 
 template<typename T> static inline void ali_set_length(T ** list, size_t length)
 {
-  return _ali_set_length((void **)list, length);
+  _ali_set_length((void **)list, length);
 }
 
-template<typename T> static inline void ali_push(T ** list, T item)
+template<typename T, typename U> static inline void ali_push(T ** list, U item)
 {
-  return _ali_push((void **)list, &item);
-}
-
-template<typename T> static inline void ali_push(const T *** list, T * item)
-{
-  return _ali_push((void **)list, &item);
+  *(T *)_ali_push0((void **)list) = item;
 }
 
 #else
-#define ali_copy(list, cap) ((typeof(**list)**)_ali_copy((list), cap))
+#define ali_copy(list, cap) ((typeof_unqual(*list)*)_ali_copy((list), cap))
 #define ali_resize_capacity(list, cap) (_ali_resize_capacity(_ARENA_PP(list), cap))
 #define ali_set_length(list, length) (_ali_set_length(_ARENA_PP(list), length))
-#define ali_push(list, item) (_ali_push(_ARENA_PP(list), _ARENA_T_VAL((item), typeof(**(list)))))
+#define ali_push(list, item) (*(typeof(*list))_ali_push0(_ARENA_PP(list)) = (item))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////

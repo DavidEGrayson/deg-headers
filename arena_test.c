@@ -235,6 +235,8 @@ void test_ali_pointers()
 
   Foo ** foo_list = ali_create(&arena, 1, Foo *);
 
+  // ali_set_length(foo_list, 1);  // missing & but only fails at runtime :(
+
   Foo * foo0 = arena_alloc1(&arena, Foo);
   ali_push(&foo_list, foo0);
 
@@ -262,7 +264,7 @@ void test_ali_pointers()
   ali_resize_capacity(&foo_list, 8);
   assert(ali_capacity(foo_list) == 8);
 
-  // APtrList const tests: so many cases to test!
+  // AList const tests: so many cases to test!
 
   Foo ** copy_list;
   const Foo ** copy_list_const;
@@ -276,7 +278,6 @@ void test_ali_pointers()
     // 001: const list
     Foo ** const list = ali_copy(foo_list2, 0);
     assert(ali_length(list) == 2);
-    //ali_set_length(&list, 0);  // error in C/C++
     //ali_push(&list, foo0);     // error in C/C++
     copy_list_const = (const Foo **)ali_copy(list, 0);  // safe, but cast required
     copy_list = ali_copy(list, 0);
@@ -286,19 +287,17 @@ void test_ali_pointers()
     // 010: const items
     Foo * const * list = ali_copy(foo_list2, 0);
     assert(ali_length(list) == 2);
-    //ali_set_length(&list, 0);  // error in C/C++
     //ali_push(&list, foo1);     // error in C/C++
-    copy_list_const = (const Foo **)ali_copy(list, 0); // safe, but cast required
-    copy_list = ali_copy(list, 0);
+    copy_list_const = (const Foo **)ali_copy(list, 0);  // safe, but cast required
+    copy_list = ali_copy(list, 0);  // warning in C/C++
   }
 
   {
     // 011: const list and items
     Foo * const * const list = ali_copy(foo_list2, 0);
     assert(ali_length(list) == 2);
-    //ali_set_length(&list, 0);  // error in C/C++
     //ali_push(&list, foo1);     // error in C/C++
-    copy_list_const = (const Foo **)ali_copy(list, 0); // safe, but cast required
+    copy_list_const = (const Foo **)ali_copy(list, 0);  // safe, but cast required
     copy_list = ali_copy(list, 0);
   }
 
@@ -310,14 +309,13 @@ void test_ali_pointers()
     ali_push(&list, foo1);
     ali_push(&list, (const Foo *)foo1);
     copy_list_const = ali_copy(list, 0);
-    //copy_list = ali_copy(list, 0);   // error in C/C++
+    // copy_list = ali_copy(list, 0);   // error in C/C++
   }
 
   {
     // 111: everything const
     const Foo * const * const list = (const Foo **)foo_list2;
     assert(ali_length(list) == 2);
-    //ali_set_length(&list, 0);  // error in C/C++
     //ali_push(&list, foo1);     // error in C/C++
     copy_list_const = ali_copy(list, 0);
     //copy_list = ali_copy(list, 0);    // error in C/C++
@@ -325,6 +323,73 @@ void test_ali_pointers()
 
   (void)copy_list;
   (void)copy_list_const;
+}
+
+void test_ali_ints()
+{
+  int * int_list = ali_create(&arena, 3, int);
+
+  ali_push(&int_list, 1);
+  ali_push(&int_list, (char)2);
+  ali_push(&int_list, (int64_t)3);
+
+  assert(ali_length(int_list) == 3);
+  assert(ali_capacity(int_list) == 3);
+  assert(int_list[0] == 1);
+  assert(int_list[1] == 2);
+  assert(int_list[2] == 3);
+  assert(int_list[3] == 0);
+
+  int * int_list2 = ali_copy(int_list, 0);
+
+  ali_set_length(&int_list, 1);
+  assert(int_list[0] == 1);
+  assert(int_list[1] == 0);
+
+  assert(int_list2[1] == 2);
+
+  // AList<int> const tests
+
+  int * copy_list;
+  const int * copy_list_const;
+
+  {
+    // const list
+    int * const list = ali_copy(int_list2, 0);
+    assert(ali_length(list) == 3);
+    //ali_push(&list, foo0);     // error in C/C++
+    copy_list_const = ali_copy(list, 0);
+    copy_list = ali_copy(list, 0);
+  }
+
+  {
+    // const items
+    const int * list = ali_copy(int_list2, 0);
+    assert(ali_length(list) == 3);
+    //ali_push(&list, foo1);     // error in C/C++
+    copy_list_const = ali_copy(list, 0);
+    copy_list = ali_copy(list, 0);
+  }
+
+  {
+    // const list and items
+    const int * const list = ali_copy(int_list2, 0);
+    assert(ali_length(list) == 3);
+    //ali_push(&list, foo1);     // error in C/C++
+    copy_list_const = ali_copy(list, 0);
+    copy_list = ali_copy(list, 0);
+  }
+
+  (void)copy_list;
+  (void)copy_list_const;
+}
+
+void test_ali_const_char_p()
+{
+  const char ** string_list = ali_create(&arena, 3, const char *);
+  ali_push(&string_list, "hi");
+  const char * str2 = "str2";
+  ali_push(&string_list, str2);
 }
 
 typedef struct KVPair {
@@ -541,6 +606,8 @@ int main()
   test_astring();
 
   test_ali_pointers();
+  test_ali_ints();
+  test_ali_const_char_p();
 
   test_ahash_type_default();
   test_ahash_type_string();
