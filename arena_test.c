@@ -391,7 +391,7 @@ void test_ahash_type_default()
   {
     // find_or_update with KVPair *, that does an update
     KVPair tmp = { 1, 11 };
-    KVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    KVPair * result = ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 1);
     assert(result->key == 1 && result->value == 11);
@@ -399,7 +399,7 @@ void test_ahash_type_default()
 
   {
     // find_or_update with KVPair, that does another update
-    KVPair * result = ahash_find_or_update(&hash, ((KVPair){ 2, 22 }), &found);
+    KVPair * result = ahash_find_or_update(hash, ((KVPair){ 2, 22 }), &found);
     assert(!found);
     assert(ahash_length(hash) == 2);
     assert(result->key == 2 && result->value == 22);
@@ -408,7 +408,7 @@ void test_ahash_type_default()
   {
     // find_or_update that does not update
     KVPair tmp = { 2, 23 };
-    KVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    KVPair * result = ahash_find_or_update(hash, &tmp, &found);
     assert(found);
     assert(ahash_length(hash) == 2);
     assert(ahash_capacity(hash) == 4);
@@ -418,7 +418,7 @@ void test_ahash_type_default()
   {
     // simple update
     KVPair tmp = { 3, 33 };
-    ahash_update(&hash, &tmp);
+    ahash_update(hash, &tmp);
     assert(ahash_length(hash) == 3);
   }
 
@@ -432,7 +432,7 @@ void test_ahash_type_default()
     assert(ahash_find_p(hash, &ckey)->value == 22);
   }
 
-  ahash_resize_capacity(&hash, 17);
+  ahash_resize_capacity(hash, 17);
   assert(ahash_capacity(hash) == 32);
 
   {
@@ -472,7 +472,7 @@ void test_ahash_type_default()
     //ahash_update(&chash2, &cpair);  // error in C/C++
 
     // If we change the original hash, the read-only hashes see the copy.
-    ahash_update(&hash, &cpair);
+    ahash_update(hash, &cpair);
     assert(ahash_find(chash, 4)->value == 44);
     assert(ahash_find(chash2, 4)->value == 44);
   }
@@ -493,7 +493,7 @@ void test_ahash_type_string()
 
   {
     Intern tmp = { str1 };
-    Intern * result = ahash_find_or_update(&hash, &tmp, &found);
+    Intern * result = ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 1);
     assert(result->key == str1);
@@ -501,7 +501,7 @@ void test_ahash_type_string()
 
   {
     Intern tmp =  { str2 };
-    Intern * result = ahash_find_or_update(&hash, &tmp, &found);
+    Intern * result = ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 2);
     assert(result->key == str2);
@@ -509,7 +509,7 @@ void test_ahash_type_string()
 
   {
     Intern tmp = { "abcd" };
-    Intern * result = ahash_find_or_update(&hash, &tmp, &found);
+    Intern * result = ahash_find_or_update(hash, &tmp, &found);
     assert(found);
     assert(ahash_length(hash) == 2);
     assert(ahash_capacity(hash) == 4);
@@ -518,7 +518,7 @@ void test_ahash_type_string()
 
   {
     Intern tmp = { "ghi" };
-    ahash_find_or_update(&hash, &tmp, &found);
+    ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 3);
   }
@@ -553,7 +553,7 @@ void test_ahash_type_byte_slice()
 
   {
     BSVPair tmp = { { (uint8_t *)str1, strlen(str1) }, 11 };
-    BSVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    BSVPair * result = ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 1);
     assert(result->key.data == (uint8_t *)str1);
@@ -561,7 +561,7 @@ void test_ahash_type_byte_slice()
 
   {
     BSVPair tmp =  { { (uint8_t *)str2, strlen(str2) }, 22 };
-    BSVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    BSVPair * result = ahash_find_or_update(hash, &tmp, &found);
     assert(!found);
     assert(ahash_length(hash) == 2);
     assert(result->key.data == (uint8_t *)str2);
@@ -569,7 +569,7 @@ void test_ahash_type_byte_slice()
 
   {
     BSVPair tmp = { { (uint8_t *)"abcd", 4 }, 12 };
-    BSVPair * result = ahash_find_or_update(&hash, &tmp, &found);
+    BSVPair * result = ahash_find_or_update(hash, &tmp, &found);
     assert(found);
     assert(ahash_length(hash) == 2);
     assert(ahash_capacity(hash) == 4);

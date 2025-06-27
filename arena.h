@@ -1225,7 +1225,7 @@ typedef struct AByteSlice {
 //   Creates a new AHash that is a copy of the specified AHash, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
-// void ahash_resize_capacity(T *** list, size_t capacity)
+// void ahash_resize_capacity(T * & hash, size_t capacity)
 //   Changes the capacity of the AHash without changing its contents.
 //   This function increases the capacity to ensure it is a power of 2
 //   and greater than or eqaul to the length of the hash.
@@ -1238,15 +1238,15 @@ typedef struct AByteSlice {
 //   If you're curious why the ahash_find have to be separate ahash_find_p macros, see:
 //   https://gist.github.com/DavidEGrayson/44a54453af0ea0ec890c615b81dbbd0c
 //
-// T * ahash_update(T ** hash, const T * item);
-// T * ahash_update(T ** hash, T item);
+// T * ahash_update(T * & hash, const T * item);
+// T * ahash_update(T * & hash, T item);
 //   Copies the specified item into the hash table and returns a pointer to its
 //   new location (which is not permanent: it can move when the table
 //   grows).  If an item already existed in the hash table with the same key,
 //   this function overwrites it completely.
 //
-// T * ahash_find_or_update(T ** hash, const T * item, bool * found);
-// T * ahash_find_or_update(T ** hash, T item, bool * found);
+// T * ahash_find_or_update(T * & hash, const T * item, bool * found);
+// T * ahash_find_or_update(T * & hash, T item, bool * found);
 //   Looks for an item with the specified key.  If it is found, then
 //   this function sets *found to true.  If it is not found, this function
 //   sets *found to false and copies all the data from 'item' into the hash
@@ -1551,9 +1551,9 @@ template <typename T> static inline T * ahash_copy(const T * hash, size_t capaci
   return (T *)_ahash_copy((const void *)hash, capacity);
 }
 
-template<typename T> static inline void ahash_resize_capacity(T ** hash, size_t capacity)
+template<typename T> static inline void ahash_resize_capacity(T * & hash, size_t capacity)
 {
-  return _ahash_resize_capacity((void **)hash, capacity);
+  return _ahash_resize_capacity((void **)&hash, capacity);
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
@@ -1568,29 +1568,29 @@ template<typename T> static inline T * ahash_find_p(const T * hash,
   return (T *)_ahash_find((const void *)hash, key);
 }
 
-template<typename T> static inline T * ahash_find_or_update(T ** hash,
+template<typename T> static inline T * ahash_find_or_update(T * & hash,
   const T * item, bool * found)
 {
-  return (T *)_ahash_find_or_update((void **)hash, item, found);
+  return (T *)_ahash_find_or_update((void **)&hash, item, found);
 }
 
-template<typename T> static inline T * ahash_find_or_update(T ** hash,
+template<typename T> static inline T * ahash_find_or_update(T * & hash,
   T item, bool * found)
 {
-  return (T *)_ahash_find_or_update((void **)hash, &item, found);
+  return (T *)_ahash_find_or_update((void **)&hash, &item, found);
 }
 
-template<typename T> static inline T * ahash_update(T ** hash, const T * item)
+template<typename T> static inline T * ahash_update(T * & hash, const T * item)
 {
-  return (T *)_ahash_update((void **)hash, item);
+  return (T *)_ahash_update((void **)&hash, item);
 }
 
 #else
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
-#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(hash), (c)))
-#define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(hash), (l)))
+#define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(&(hash)), (c)))
+#define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(&(hash)), (l)))
 #define ahash_find(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_VAL((k), typeof_unqual((hash)->key))))
 #define ahash_find_p(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_PTR((k), typeof_unqual((hash)->key))))
-#define ahash_find_or_update(hash, item, f) ((typeof(*hash))_ahash_find_or_update(_ARENA_PP(hash), _ARENA_T_PTR_OR_VAL((item), typeof(**hash)), (f)))
-#define ahash_update(hash, item) ((typeof(*hash))_ahash_update(_ARENA_PP(hash), _ARENA_T_PTR_OR_VAL((item), typeof(**hash))))
+#define ahash_find_or_update(hash, item, f) ((typeof(hash))_ahash_find_or_update(_ARENA_PP(&(hash)), _ARENA_T_PTR_OR_VAL((item), typeof(*hash)), (f)))
+#define ahash_update(hash, item) ((typeof(hash))_ahash_update(_ARENA_PP(&(hash)), _ARENA_T_PTR_OR_VAL((item), typeof(*hash))))
 #endif
