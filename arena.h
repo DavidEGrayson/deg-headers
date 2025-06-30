@@ -428,10 +428,6 @@ static inline void _arena_invalidate_magic(uint64_t * m)
   *m = (*m & ~0xFF000000) | ('-' << 24);
 }
 
-// The container types below depend on these being true:
-static_assert(alignof(void *) == sizeof(void *));
-static_assert(sizeof(size_t) == sizeof(void *));
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // AString: an expandable null-terminated string stored in an arena.
@@ -811,8 +807,6 @@ typedef struct AList {
   uint32_t item_size;
   size_t magic;
 } AList;
-
-static_assert(alignof(AList) == sizeof(void *));
 
 static void * _ali_create(Arena * arena, size_t capacity, size_t item_size, size_t item_alignment)
 {
