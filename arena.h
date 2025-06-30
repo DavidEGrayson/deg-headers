@@ -842,6 +842,7 @@ static inline AList * _ali_header_no_check(const void * list)
 
 static inline AList * _ali_header(const void * list)
 {
+  assert(list);
   AList * h = _ali_header_no_check(list);
   assert(h->magic == MAGIC_ALI);
   return h;
@@ -1155,7 +1156,8 @@ static void arena_hash_key_init(Arena * arena)
   }
 }
 
-// Calculates the hash of the specified data.  Never returns 0.
+// Calculates the hash of the specified data.
+// Never returns 0 (the empty value) or 1 (the tombstone value).
 static ArenaHashInt arena_hash(Arena * arena,
   const uint8_t * data, size_t length)
 {
@@ -1163,7 +1165,7 @@ static ArenaHashInt arena_hash(Arena * arena,
   ArenaHashInt out;
   arena_halfsiphash(data, length, (uint8_t *)&arena->hash_key,
     (uint8_t *)&out, sizeof(out));
-  if (out == 0) { out++; }
+  if (out <= 1) { out = 2; }
   return out;
 }
 
@@ -1203,12 +1205,19 @@ typedef struct AByteSlice {
 // One of the members in the header points to a table used to find items:
 //   ArenaHashInt hash_table[capacity * 4];
 //
-// There are capacity * 2 slots available to store items in the hash table.
-// The hash associated with a slot is stored in the first half of hash_table,
-// (with 0 meaning empty) and the index of the corresponding item in the list
-// is stored at the corresponding spot in the second half of the hash table.
+// There are capacity * 2 slots in the hash table.  When we add an item to the
+// table, the index of the slot we use for it is determined in part by the
+// lower bits of the hash of its key, making it possible to quickly find
+// the slot later.  The first half of the hash table stores the full hash
+// of the item's key, or 0 if the slot is empty or 1 if the slot holds a
+// deleted item.  The second half of the hash table stores the index of
+// the item in the array.
 //
 // The capacity is always a power of 2.
+//
+// ArenaHashInt is uint32_t, which limits the size of the number of items to
+// 2,147,483,648.  If that is a problem, you should be able to simply change
+// the definition of ArenaHashInt to uint64_t.
 //
 // Supported key types:
 //
@@ -1253,6 +1262,7 @@ typedef struct AByteSlice {
 //   Changes the capacity of the AHash without changing its contents.
 //   This function increases the capacity to ensure it is a power of 2
 //   and greater than or eqaul to the length of the hash.
+//   (This function also eliminates all tombstones from the hash table.)
 //
 // T * ahash_find(const T * hash, TK key);
 // T * ahash_find_p(const T * hash, const TK * key);
@@ -1277,7 +1287,11 @@ typedef struct AByteSlice {
 //   table.  Returns a pointer to the location of the item that was found or
 //   added (which is not permanent: it can move when the table grows).
 //
-// TODO: functions for removing items from AHash
+// bool ahash_delete(T * & hash, TK key)
+// bool ahash_delete_p(T * & hash, TK * key)
+//   Deletes the item with the specified key, removing it from the array and
+//   moving the last item in the array to take its place.  Returns true if an
+//   item was deleted.
 
 typedef enum AKeyType : uint8_t {
   AKEY_DEFAULT = 0,
@@ -1292,6 +1306,7 @@ typedef struct AHash {
   ArenaHashInt * table;
   ArenaHashInt length;    // number of items stored, not counting the NULL terminator
   ArenaHashInt capacity;  // maximum length we can accomodate without resizing (power of 2)
+  ArenaHashInt tombstone_count;  // number of hash slots used by deleted items
   uint32_t item_size;
   uint32_t key_size;
   AKeyType key_type;
@@ -1392,7 +1407,7 @@ static inline size_t _ahash_capacity(const void * hash)
 
 static void * _ahash_copy(const void * old_hash, size_t capacity)
 {
-  const AHash * old_ahash = _ahash_header((void *)old_hash);
+  const AHash * old_ahash = _ahash_header(old_hash);
   const ArenaHashInt * old_table = old_ahash->table;
 
   if (capacity < old_ahash->length) { capacity = old_ahash->length; }
@@ -1445,7 +1460,7 @@ static void _ahash_resize_capacity(void ** hash, size_t capacity)
 }
 
 // Applies the hash function to the key of the item.
-static ArenaHashInt _ahash_calculate_hash(void * hash, const void * key)
+static ArenaHashInt _ahash_calculate_hash(const void * hash, const void * key)
 {
   AHash * ahash = _ahash_header(hash);
   switch (ahash->key_type)
@@ -1465,7 +1480,7 @@ static ArenaHashInt _ahash_calculate_hash(void * hash, const void * key)
 // Compares the keys of two items and returns true if they are equal.
 static bool _ahash_compare(const void * hash, const void * key1, const void * key2)
 {
-  const AHash * ahash = _ahash_header((void *)hash);
+  const AHash * ahash = _ahash_header(hash);
   switch (ahash->key_type)
   {
   case AKEY_STRING:
@@ -1481,17 +1496,45 @@ static bool _ahash_compare(const void * hash, const void * key1, const void * ke
   }
 }
 
-static inline void * _ahash_find(const void * hash, const void * key)
+// Finds the slot in the hash table where an item with the specified key is being stored
+// or could be stored.  The latter case is indicated by table[slot] == 0.
+static inline ArenaHashInt _ahash_find_slot(const void * hash, const void * key)
 {
-  const AHash * ahash = _ahash_header((void *)hash);
+  const AHash * ahash = _ahash_header(hash);
   size_t capacity = ahash->capacity;
   ArenaHashInt * table = ahash->table;
-  const ArenaHashInt h = _ahash_calculate_hash((void *)hash, key);
-  const ArenaHashInt mask = capacity * 2 - 1;
-  ArenaHashInt slot = h & mask;
+  ArenaHashInt hv = _ahash_calculate_hash(hash, key);
+  ArenaHashInt mask = capacity * 2 - 1;
+  ArenaHashInt slot = hv & mask;
   while (table[slot])
   {
-    if (table[slot] == h)
+    if (table[slot] == hv)
+    {
+      size_t found_index = table[capacity * 2 + slot];
+      assert(found_index < ahash->length);
+      void * found_item = (void *)((uint8_t *)hash + found_index * ahash->item_size);
+      if (_ahash_compare(hash, key, found_item))
+      {
+        return slot;  // Found the item.  Return its slot.
+      }
+    }
+    slot = (slot + 1) & mask;
+  }
+  return slot;  // Item not found.  Return an empty slot.
+}
+
+// TODO: use _ahash_find_slot
+static inline void * _ahash_find(const void * hash, const void * key)
+{
+  const AHash * ahash = _ahash_header(hash);
+  size_t capacity = ahash->capacity;
+  ArenaHashInt * table = ahash->table;
+  ArenaHashInt hv = _ahash_calculate_hash(hash, key);
+  ArenaHashInt mask = capacity * 2 - 1;
+  ArenaHashInt slot = hv & mask;
+  while (table[slot])
+  {
+    if (table[slot] == hv)
     {
       size_t found_index = table[capacity * 2 + slot];
       assert(found_index < ahash->length);
@@ -1506,29 +1549,40 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
+// TODO: use _ahash_find_slot
 static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
 {
   AHash * ahash = _ahash_header(*hash);
 
   // Make sure we have room to potentially add one item.
-  if (ahash->length >= ahash->capacity)
+  size_t capacity = ahash->capacity;
+  if (ahash->length + ahash->tombstone_count >= capacity)
   {
-    if (ahash->capacity >= ahash_max_capacity)
+    if (ahash->tombstone_count > ahash->length)
+    {
+      // There are a lot of tombstones, so let's not increase the capacity.
+      // Call _ahash_resize_capacity just to remove the tombstones.
+    }
+    else if (capacity >= ahash_max_capacity)
     {
       arena_handle_no_memory(ahash->arena, 0xF0F0F005);
     }
-    _ahash_resize_capacity(hash, ahash->capacity * 2);
+    else
+    {
+      capacity *= 2;
+    }
+    _ahash_resize_capacity(hash, capacity);
     ahash = _ahash_header(*hash);
   }
 
-  size_t capacity = ahash->capacity;
+  capacity = ahash->capacity;
   ArenaHashInt * table = ahash->table;
-  const ArenaHashInt h = _ahash_calculate_hash(*hash, item);
-  const ArenaHashInt mask = capacity * 2 - 1;
-  ArenaHashInt slot = h & mask;
+  ArenaHashInt hv = _ahash_calculate_hash(*hash, item);
+  ArenaHashInt mask = capacity * 2 - 1;
+  ArenaHashInt slot = hv & mask;
   while (table[slot])
   {
-    if (table[slot] == h)
+    if (table[slot] == hv)
     {
       size_t other_index = table[capacity * 2 + slot];
       assert(other_index < ahash->length);
@@ -1545,7 +1599,7 @@ static inline void * _ahash_find_or_update(void ** hash, const void * item, bool
 
   *found = false;
   size_t index = ahash->length++;
-  ahash->table[slot] = h;
+  ahash->table[slot] = hv;
   ahash->table[capacity * 2 + slot] = index;
   void * new_item = (void *)((uint8_t *)*hash + index * ahash->item_size);
   memcpy(new_item, item, ahash->item_size);
@@ -1564,6 +1618,48 @@ static inline void * _ahash_update(void ** hash, const void * item)
   return stored_item;
 }
 
+static inline bool _ahash_delete(void * hash, const void * key)
+{
+  AHash * ahash = _ahash_header(hash);
+  ArenaHashInt capacity = ahash->capacity;
+  uint32_t item_size = ahash->item_size;
+  ArenaHashInt * table = ahash->table;
+  ArenaHashInt hv = _ahash_calculate_hash(hash, key);
+  ArenaHashInt mask = capacity * 2 - 1;
+  ArenaHashInt slot = hv & mask;
+  // TODO: use _ahash_find_slot
+  while (table[slot])
+  {
+    if (table[slot] == hv)
+    {
+      ArenaHashInt index = table[capacity * 2 + slot];
+      assert(index < ahash->length);
+      void * item = (void *)((uint8_t *)hash + index * item_size);
+      if (_ahash_compare(hash, key, item))
+      {
+        // Found the item to delete.
+        table[slot] = 1;  // tombstone
+        ahash->tombstone_count++;
+
+        ArenaHashInt final_index = ahash->length - 1;
+        if (index < final_index)
+        {
+          // Move the final item to take the place of the deleted item.
+          void * item = (uint8_t *)hash + index * item_size;
+          void * final_item = (uint8_t *)hash + final_index * item_size;
+          memcpy(item, final_item, item_size);
+          ArenaHashInt slot = _ahash_find_slot(hash, item);
+          assert(table[slot] && table[capacity * 2 + slot] == final_index);
+          table[capacity * 2 + slot] = index;
+        }
+        ahash->length--;
+        return 1;
+      }
+    }
+    slot = (slot + 1) & mask;
+  }
+  return 0;
+}
 
 #define ahash_create(arena, capacity, type, T) ((T *)_ahash_create((arena), (capacity), (type), sizeof(((T*)0)->key), sizeof(T), alignof(T)))
 #define ahash_length _ahash_length
@@ -1581,9 +1677,9 @@ template<typename T> static inline void ahash_resize_capacity(T * & hash, size_t
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
-  decltype(((T*)0)->key) item)
+  decltype(((T*)0)->key) key)
 {
-  return (T *)_ahash_find((const void *)hash, &item);
+  return (T *)_ahash_find((const void *)hash, &key);
 }
 
 template<typename T> static inline T * ahash_find_p(const T * hash,
@@ -1609,6 +1705,23 @@ template<typename T> static inline T * ahash_update(T * & hash, const T * item)
   return (T *)_ahash_update((void **)&hash, item);
 }
 
+template<typename T> static inline T * ahash_update(T * & hash, T item)
+{
+  return (T *)_ahash_update((void **)&hash, &item);
+}
+
+template<typename T> static inline bool ahash_delete(T * hash,
+  decltype(((T*)0)->key) key)
+{
+  return _ahash_delete(hash, &key);
+}
+
+template<typename T> static inline bool ahash_delete_p(T * hash,
+  const decltype(((T*)0)->key) * key)
+{
+  return _ahash_delete(hash, key);
+}
+
 #else
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
 #define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(&(hash)), (c)))
@@ -1617,4 +1730,6 @@ template<typename T> static inline T * ahash_update(T * & hash, const T * item)
 #define ahash_find_p(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_PTR((k), typeof_unqual((hash)->key))))
 #define ahash_find_or_update(hash, item, f) ((typeof(hash))_ahash_find_or_update(_ARENA_PP(&(hash)), _ARENA_T_PTR_OR_VAL((item), typeof(*hash)), (f)))
 #define ahash_update(hash, item) ((typeof(hash))_ahash_update(_ARENA_PP(&(hash)), _ARENA_T_PTR_OR_VAL((item), typeof(*hash))))
+#define ahash_delete(hash, k) (_ahash_delete((hash), _ARENA_T_VAL((k), typeof_unqual((hash)->key))))
+#define ahash_delete_p(hash, k) (_ahash_delete_p((hash), _ARENA_T_PTR((k), typeof_unqual((hash)->key))))
 #endif

@@ -457,10 +457,20 @@ void test_ahash_type_default()
   assert(ahash_capacity(hash) == 32);
 
   {
-    // Copy tests.
+    // copy tests
     KVPair * hash2 = ahash_copy(hash, 0);
+    assert(ahash_capacity(hash2) == 4);
     assert(ahash_find(hash, 3)->value == 33);
     assert(ahash_find(hash2, 3)->value == 33);
+  }
+
+  {
+    // delete tests
+    KVPair * hash2 = ahash_copy(hash, 0);
+    bool deleted = ahash_delete(hash2, 9);
+    assert(!deleted);
+    deleted = ahash_delete(hash2, 1);
+    assert(deleted);
   }
 
   {
