@@ -469,8 +469,11 @@ void test_ahash_type_default()
     KVPair * hash2 = ahash_copy(hash, 0);
     bool deleted = ahash_delete(hash2, 9);
     assert(!deleted);
+    assert(hash2[0].key == 1);
     deleted = ahash_delete(hash2, 1);
     assert(deleted);
+    assert(hash2[0].key == 3);
+    assert(ahash_find(hash2, 3)->value == 33);
   }
 
   {

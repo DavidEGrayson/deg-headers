@@ -1523,7 +1523,6 @@ static inline ArenaHashInt _ahash_find_slot(const void * hash, const void * key)
   return slot;  // Item not found.  Return an empty slot.
 }
 
-// TODO: use _ahash_find_slot
 static inline void * _ahash_find(const void * hash, const void * key)
 {
   const AHash * ahash = _ahash_header(hash);
@@ -1549,7 +1548,6 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
-// TODO: use _ahash_find_slot
 static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
 {
   AHash * ahash = _ahash_header(*hash);
@@ -1624,41 +1622,24 @@ static inline bool _ahash_delete(void * hash, const void * key)
   ArenaHashInt capacity = ahash->capacity;
   uint32_t item_size = ahash->item_size;
   ArenaHashInt * table = ahash->table;
-  ArenaHashInt hv = _ahash_calculate_hash(hash, key);
-  ArenaHashInt mask = capacity * 2 - 1;
-  ArenaHashInt slot = hv & mask;
-  // TODO: use _ahash_find_slot
-  while (table[slot])
+  ArenaHashInt slot = _ahash_find_slot(hash, key);
+  if (table[slot] == 0) { return 0; }
+  table[slot] = 1;  // tombstone
+  ahash->tombstone_count++;
+  ArenaHashInt index = table[capacity * 2 + slot];
+  ArenaHashInt final_index = ahash->length - 1;
+  if (index < final_index)
   {
-    if (table[slot] == hv)
-    {
-      ArenaHashInt index = table[capacity * 2 + slot];
-      assert(index < ahash->length);
-      void * item = (void *)((uint8_t *)hash + index * item_size);
-      if (_ahash_compare(hash, key, item))
-      {
-        // Found the item to delete.
-        table[slot] = 1;  // tombstone
-        ahash->tombstone_count++;
-
-        ArenaHashInt final_index = ahash->length - 1;
-        if (index < final_index)
-        {
-          // Move the final item to take the place of the deleted item.
-          void * item = (uint8_t *)hash + index * item_size;
-          void * final_item = (uint8_t *)hash + final_index * item_size;
-          memcpy(item, final_item, item_size);
-          ArenaHashInt slot = _ahash_find_slot(hash, item);
-          assert(table[slot] && table[capacity * 2 + slot] == final_index);
-          table[capacity * 2 + slot] = index;
-        }
-        ahash->length--;
-        return 1;
-      }
-    }
-    slot = (slot + 1) & mask;
+    // Move the final item to take the place of the deleted item.
+    void * item = (uint8_t *)hash + index * item_size;
+    void * final_item = (uint8_t *)hash + final_index * item_size;
+    memcpy(item, final_item, item_size);
+    ArenaHashInt slot2 = _ahash_find_slot(hash, item);
+    assert(table[slot2] && table[capacity * 2 + slot2] == final_index);
+    table[capacity * 2 + slot2] = index;
   }
-  return 0;
+  ahash->length--;
+  return 1;
 }
 
 #define ahash_create(arena, capacity, type, T) ((T *)_ahash_create((arena), (capacity), (type), sizeof(((T*)0)->key), sizeof(T), alignof(T)))
