@@ -123,7 +123,7 @@ typedef struct Arena
   // If the alignments of the allocations do not exceed alignof(max_align_t),
   // and addresses returned by malloc and arena_block_overhead are both
   // multiples of max_align_t, then I believe this is guaranteed to be
-  // an over-estimate.
+  // an over-estimate.  TODO: proof
   size_t size_estimate;
 
   // The highest remembered value of size_estimate.
@@ -784,7 +784,9 @@ static inline char * astr_compact_into_cstr(char * str)
 //   To avoid O(N^2) problems, when this function grows the list, it makes
 //   the capacity be double what is needed.
 //
-// TODO: functions for removing items from AList
+// void ali_drop(T * & list, size_t count)
+//   Removes the first 'count' items from the list by changing the start of
+//   the list.  Does not move any of the remaining items.
 //
 // Further explanations:
 //
@@ -830,10 +832,18 @@ static void * _ali_create(Arena * arena, size_t capacity, size_t item_size, size
   return list;
 }
 
+static inline AList * _ali_header_no_check(const void * list)
+{
+  // The & operator is needed for lists where sizeof(T) < alignof(AList)
+  // and ali_drop has been used.
+  return (AList *)(((uintptr_t)list - sizeof(AList)) & ~(alignof(AList) - 1));
+}
+
 static inline AList * _ali_header(const void * list)
 {
-  assert(list && ((size_t *)list)[-1] == (size_t)MAGIC_ALI);
-  return (AList *)((uint8_t *)list - sizeof(AList));
+  AList * h = _ali_header_no_check(list);
+  assert(h->magic == MAGIC_ALI);
+  return h;
 }
 
 static inline size_t _ali_length(const void * list)
@@ -918,6 +928,19 @@ static inline void * _ali_push0(void ** list)
   return (uint8_t *)*list + (h->length - 1) * h->item_size;
 }
 
+static inline void _ali_drop(void ** list, size_t count)
+{
+  assert(list);
+  AList * h = _ali_header(*list);
+  if (count > h->length) { count = h->length; }
+  void * new_list = (uint8_t *)*list + count * h->item_size;
+  *list = new_list;
+  AList * new_h = _ali_header_no_check(new_list);
+  memmove(new_h, h, sizeof(AList));
+  new_h->capacity -= count;
+  new_h->length -= count;
+}
+
 #define ali_create(arena, capacity, T) ((T *)_ali_create((arena), (capacity), sizeof(T), alignof(T)))
 #define ali_length _ali_length
 #define ali_capacity _ali_capacity
@@ -944,11 +967,17 @@ template<typename T, typename U> static inline void ali_push(T * & list, U item)
   *(T *)_ali_push0((void **)&list) = item;
 }
 
+template<typename T> static inline void ali_drop(T * & list, size_t count)
+{
+  _ali_drop((void **)&list, count);
+}
+
 #else
 #define ali_copy(list, cap) ((typeof_unqual(*list)*)_ali_copy((list), cap))
 #define ali_resize_capacity(list, cap) (_ali_resize_capacity(_ARENA_PP(&list), cap))
 #define ali_set_length(list, length) (_ali_set_length(_ARENA_PP(&list), length))
 #define ali_push(list, item) (*(typeof(list))_ali_push0(_ARENA_PP(&list)) = (item))
+#define ali_drop(list, count) (_ali_drop(_ARENA_PP(&list), (count)))
 #endif
 
 ///// Hash function ////////////////////////////////////////////////////////////

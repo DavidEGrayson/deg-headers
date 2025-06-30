@@ -378,6 +378,27 @@ void test_ali_const_char_p()
   ali_push(string_list, str2);
 }
 
+void test_ali_drop()
+{
+  int16_t * list = ali_create(&arena, 16, int16_t);
+  for (unsigned int i = 0; i < 14; i++)
+  {
+    ali_push(list, i);
+  }
+
+  // Drop one element: header doesn't move
+  ali_drop(list, 1);
+  assert(list[0] == 1);
+  assert(ali_length(list) == 13);
+  assert(ali_capacity(list) == 15);
+
+  // Drop 8 more elements: header does move
+  ali_drop(list, 8);
+  assert(list[0] == 9);
+  assert(ali_length(list) == 5);
+  assert(ali_capacity(list) == 7);
+}
+
 typedef struct KVPair {
   int key;
   int value;
@@ -592,6 +613,7 @@ int main()
   test_ali_pointers();
   test_ali_ints();
   test_ali_const_char_p();
+  test_ali_drop();
 
   test_ahash_type_default();
   test_ahash_type_string();
