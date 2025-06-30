@@ -742,6 +742,7 @@ static inline char * astr_compact_into_cstr(char * str)
 //
 // The memory layout of the AList is:
 //   AList header;
+//   T dropped[n];  (padding to ensure AList is aligned, if items were dropped)
 //   T items[capacity + 1];
 //
 // Public interface for AList:
