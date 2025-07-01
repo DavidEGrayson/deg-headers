@@ -1392,7 +1392,7 @@ static inline void * _ahash_create(Arena * arena, size_t capacity, AKeyType type
   ahash->key_type = type;
   ahash->key_size = key_size;
   ahash->magic = MAGIC_AHASH;
-  void * list = (void *)((uint8_t *)ahash + sizeof(AHash));
+  void * list = ahash + 1;
   memset(list, 0, item_size);
   return list;
 }
@@ -1609,8 +1609,9 @@ static inline void * _ahash_find_or_update(void ** hash, const void * item, bool
   size_t index = ahash->length++;
   ahash->table[slot] = hv;
   ahash->table[capacity * 2 + slot] = index;
-  void * new_item = (void *)((uint8_t *)*hash + index * ahash->item_size);
+  uint8_t * new_item = (uint8_t *)*hash + index * ahash->item_size;
   memcpy(new_item, item, ahash->item_size);
+  memset(new_item + ahash->item_size, 0, ahash->item_size);
   return new_item;
 }
 
