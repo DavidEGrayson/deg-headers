@@ -496,7 +496,12 @@ static char * astr_copy(const char * old_str, size_t capacity)
   return str;
 }
 
-// Changes the capacity of the AString, without changing its contents.
+// Changes the capacity of the AString to be greater than or equal to the
+// specified capacity, without changing its contents.
+// Passing 0 is a good way to resize the string to the minimal size needed,
+// returning all unneeded memory to the arena (which only works if
+// you didn't allocate anything from that arena after the last time the
+// string capacity changed).
 static void astr_resize_capacity(char ** str, size_t new_capacity)
 {
   AString * astr = _astr_header(*str);
@@ -505,13 +510,15 @@ static void astr_resize_capacity(char ** str, size_t new_capacity)
     new_capacity = astr->length;
   }
 
-  if (arena_resize(astr->arena, astr, sizeof(AString) + new_capacity + 1) ||
-    new_capacity <= astr->capacity)
+  if (arena_resize(astr->arena, astr, sizeof(AString) + new_capacity + 1))
   {
-    // Either we successfully grew the string in place because there was space
-    // in the current block and the string was the last thing to be allocated,
-    // or we shrank the string.
     astr->capacity = new_capacity;
+    return;
+  }
+  else if (new_capacity <= astr->capacity)
+  {
+    // The user asked to shrink the string but we can't actually give the space
+    // back to the arena, so there is no point.
     return;
   }
 
@@ -881,12 +888,15 @@ static void _ali_resize_capacity(void ** list, size_t new_capacity)
   if (new_capacity < h->length) { new_capacity = h->length; }
 
   size_t size = sizeof(AList) + (new_capacity + 1) * sizeof(void *);
-  if (arena_resize(h->arena, h, size) || new_capacity <= h->capacity)
+  if (arena_resize(h->arena, h, size))
   {
-    // Either we successfully grew the list in place because there was space in
-    // the current block and the list was the last thing allocated, or we
-    // are shrinking the capacity.
     h->capacity = new_capacity;
+    return;
+  }
+  else if (new_capacity <= h->capacity)
+  {
+    // The user asked to shrink the capacity of the list, but we cannot give
+    // that memory back to the arena, so there is no point.
     return;
   }
 
