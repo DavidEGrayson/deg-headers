@@ -1167,7 +1167,7 @@ static void arena_hash_key_init(Arena * arena)
 }
 
 // Calculates the hash of the specified data.
-// Never returns 0 (the empty value) or 1 (the tombstone value).
+// Never returns 0 (the empty value).
 static ArenaHashInt arena_hash(Arena * arena,
   const uint8_t * data, size_t length)
 {
@@ -1175,7 +1175,7 @@ static ArenaHashInt arena_hash(Arena * arena,
   ArenaHashInt out;
   arena_halfsiphash(data, length, (uint8_t *)&arena->hash_key,
     (uint8_t *)&out, sizeof(out));
-  if (out <= 1) { out = 2; }
+  if (out == 0) { out = 1; }
   return out;
 }
 
@@ -1219,9 +1219,8 @@ typedef struct AByteSlice {
 // table, the index of the slot we use for it is determined in part by the
 // lower bits of the hash of its key, making it possible to quickly find
 // the slot later.  The first half of the hash table stores the full hash
-// of the item's key, or 0 if the slot is empty or 1 if the slot holds a
-// deleted item.  The second half of the hash table stores the index of
-// the item in the array.
+// of the item's key, or 0 if the slot is empty.  The second half of the hash
+// table stores the index of the item in the array.
 //
 // The capacity is always a power of 2.
 //
@@ -1276,10 +1275,6 @@ typedef struct AByteSlice {
 //   Unlike astr_resize_capacity and ali_resize_capacity, this function
 //   never decreases the capacity of the hash table, because there is no
 //   practical way to give that space back to the arena.
-//   Because deleted items take up slots in the hash table, calling
-//   this function is not sufficient to ensure that the hash table is
-//   ready to accept any particular number of new items being added to it.
-//   See ahash_ensure_space if that is what you are trying to do.
 //
 // void ahash_ensure_space(T * & hash, size_t count)
 //   Ensures that the hash can accomodate 'count' additional items being added
@@ -1325,10 +1320,8 @@ static const size_t ahash_max_capacity = (ArenaHashInt)-1 / 2 + 1;
 typedef struct AHash {
   Arena * arena;
   ArenaHashInt * table;
-  ArenaHashInt * spare_table;  // if present, is the same size as 'table'
   ArenaHashInt length;    // number of items stored, not counting the NULL terminator
   ArenaHashInt capacity;  // maximum length we can accomodate without resizing (power of 2)
-  ArenaHashInt tombstone_count;  // number of hash slots used by deleted items
   uint32_t item_size;
   uint32_t key_size;
   AKeyType key_type;
@@ -1458,7 +1451,7 @@ static void * _ahash_copy(const void * old_hash, size_t capacity)
   for (size_t s = 0; s < old_ahash->capacity * 2; s++)
   {
     if (old_table[s] == 0) { continue; }  // skip empty slots
-    const ArenaHashInt mask = capacity * 2 - 1;
+    ArenaHashInt mask = capacity * 2 - 1;
     ArenaHashInt slot = old_table[s] & mask;
     while (table[slot]) { slot = (slot + 1) & mask; }
     table[slot] = old_table[s];
@@ -1575,81 +1568,19 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
-// Removes all the tombstones from the hash table.
-// TODO: we can do this without a second table, right?  Get rid of spare_table member.
-static void _ahash_clean_table(void * hash)
-{
-  AHash * ahash = _ahash_header(hash);
-  size_t capacity = ahash->capacity;
-  if (ahash->spare_table == NULL)
-  {
-    ahash->spare_table = (ArenaHashInt *)arena_alloc_no_init(ahash->arena,
-      _ahash_table_size(capacity), alignof(ArenaHashInt));
-  }
-
-  ArenaHashInt * old_table = ahash->table;
-  ArenaHashInt * new_table = ahash->spare_table;
-  memset(new_table, 0, capacity * 2 * sizeof(ArenaHashInt));
-  ArenaHashInt mask = capacity * 2 - 1;
-  for (size_t i = 0; i < capacity * 2; i++)
-  {
-    ArenaHashInt hv = old_table[i];
-    if (hv) { return; }
-    ArenaHashInt index = old_table[capacity * 2 + i];
-    // hv points to index in the old table, so add that to the new one.
-    ArenaHashInt slot = hv & mask;
-    while (new_table[slot]) { slot = (slot + 1) & mask; }
-    new_table[slot] = hv;
-    new_table[capacity * 2 + slot] = index;
-  }
-  // TODO: maybe combine this with the code in resize_capacity that does something similar?
-
-  ahash->table = new_table;
-  ahash->spare_table = old_table;
-  ahash->tombstone_count = 0;
-}
-
 static void _ahash_ensure_space(void ** hash, size_t count)
 {
   AHash * ahash = _ahash_header(*hash);
-  if (count <= ahash->capacity - ahash->tombstone_count - ahash->length)
+  if (count <= ahash->capacity - ahash->length)
   {
     return;  // We already have enough space.
   }
-
   if (count >= ahash_max_capacity - ahash->length)
   {
     // The hash cannot hold the requested amount of data.
     arena_handle_no_memory(ahash->arena, 0xF0F0F005);
   }
-
-  size_t future_length = ahash->length + count;
-
-  // desired_capacity = future_length would be bad: imagine a scenario where
-  // capacity = 1024, length = 1023, tombstone_count = 1.  When the user adds
-  // an item to the hash, this function is called and future_length would be
-  // 1024, so we wouldn't resize the hash table, but we would spend O(N)
-  // time cleaning up the tombstone, and then we'd have to do it again after the
-  // deletes that item and tries to add anohter item.  It's terrible to do
-  // O(N) work repeatedly every time the user does 2 operations.
-
-  // desired_capacity = future_length * 2 would be wasteful: if there are no
-  // tombstones, we should do the usual thing of doubling when needed.
-  // So when future_length = 17, we want to get a capacity of 32, not 64.
-
-  size_t desired_capacity = future_length + future_length / 2;
-  if (desired_capacity > ahash_max_capacity)
-  {
-    desired_capacity = ahash_max_capacity;
-  }
-
-  _ahash_resize_capacity(hash, desired_capacity);
-
-  ahash = _ahash_header(*hash);
-  if (ahash->tombstone_count)
-  {
-    _ahash_clean_table(*hash);
-  }
+  _ahash_resize_capacity(hash, ahash->length + count);
 }
 
 static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
@@ -1709,21 +1640,46 @@ static inline bool _ahash_delete(void * hash, const void * key)
   ArenaHashInt * table = ahash->table;
   ArenaHashInt slot = _ahash_find_slot(hash, key);
   if (table[slot] == 0) { return 0; }
-  table[slot] = 1;  // tombstone
-  ahash->tombstone_count++;
-  ArenaHashInt index = table[capacity * 2 + slot];
-  ArenaHashInt final_index = ahash->length - 1;
-  if (index < final_index)
+
+  table[slot] = 0;
+
+  // Move the final item to take the place of the deleted item if needed.
   {
-    // Move the final item to take the place of the deleted item.
-    void * item = (uint8_t *)hash + index * item_size;
-    void * final_item = (uint8_t *)hash + final_index * item_size;
-    memcpy(item, final_item, item_size);
-    ArenaHashInt slot2 = _ahash_find_slot(hash, item);
-    assert(table[slot2] && table[capacity * 2 + slot2] == final_index);
-    table[capacity * 2 + slot2] = index;
+    ArenaHashInt index = table[capacity * 2 + slot];
+    ArenaHashInt final_index = ahash->length - 1;
+    if (index < final_index)
+    {
+      void * item = (uint8_t *)hash + index * item_size;
+      void * final_item = (uint8_t *)hash + final_index * item_size;
+      memcpy(item, final_item, item_size);
+      ArenaHashInt slot2 = _ahash_find_slot(hash, item);
+      assert(table[slot2] && table[capacity * 2 + slot2] == final_index);
+      table[capacity * 2 + slot2] = index;
+    }
   }
+
   ahash->length--;
+
+  // Iterate through the table, back-shifting slots to if necessary
+  // until we find an empty one.
+  {
+    ArenaHashInt mask = capacity * 2 - 1;
+    size_t dest_slot = slot;
+    size_t src_slot = (slot + 1) & mask;
+    while (table[src_slot])
+    {
+      if (((table[src_slot] - slot) & mask) <= ((table[dest_slot] - slot) & mask))
+      {
+        // Move the contents of src_slot to dest_slot to fix searches for
+        // the item in src_slot.
+        table[dest_slot] = table[src_slot];
+        table[capacity * 2 + dest_slot] = table[capacity * 2 + src_slot];
+        table[src_slot] = 0;
+        dest_slot = src_slot;
+      }
+      src_slot = (slot + 1) & mask;
+    }
+  }
   return 1;
 }
 
