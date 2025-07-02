@@ -1262,17 +1262,28 @@ typedef struct AByteSlice {
 //   Returns the number of items stored in the hash.
 //
 // size_t ahash_capacity(const T * hash)
-//   Returns the number of items the hash can store without needing to grow.
+//   Returns the number of items (including deleted items) the hash table can
+//   store without needing to grow or rebuild anything.
+//   (The hash table internally contains capacity * 2 slots used to look up
+//   an item quickly based on the hash of a key.)
 //
 // T * ahash_copy(const T * hash, size_t capacity)
 //   Creates a new AHash that is a copy of the specified AHash, with a
 //   capacity that is greater than or equal to the specified capacity.
 //
 // void ahash_resize_capacity(T * & hash, size_t capacity)
-//   Changes the capacity of the AHash without changing its contents.
-//   This function increases the capacity to ensure it is a power of 2
-//   and greater than or eqaul to the length of the hash.
-//   (This function also eliminates all tombstones from the hash table.)
+//   This function ensures the hash table has the specified capacity or more.
+//   Unlike astr_resize_capacity and ali_resize_capacity, this function
+//   never decreases the capacity of the hash table, because there is no
+//   practical way to give that space back to the arena.
+//   Because deleted items take up slots in the hash table, calling
+//   this function is not sufficient to ensure that the hash table is
+//   ready to accept any particular number of new items being added to it.
+//   See ahash_ensure_space if that is what you are trying to do.
+//
+// void ahash_ensure_space(T * & hash, size_t count)
+//   Ensures that the hash can accomodate 'count' additional items being added
+//   to it without needing to allocate more memory or rebuild anything.
 //
 // T * ahash_find(const T * hash, TK key);
 // T * ahash_find_p(const T * hash, const TK * key);
@@ -1314,6 +1325,7 @@ static const size_t ahash_max_capacity = (ArenaHashInt)-1 / 2 + 1;
 typedef struct AHash {
   Arena * arena;
   ArenaHashInt * table;
+  ArenaHashInt * spare_table;  // if present, is the same size as 'table'
   ArenaHashInt length;    // number of items stored, not counting the NULL terminator
   ArenaHashInt capacity;  // maximum length we can accomodate without resizing (power of 2)
   ArenaHashInt tombstone_count;  // number of hash slots used by deleted items
@@ -1461,9 +1473,14 @@ static void _ahash_resize_capacity(void ** hash, size_t capacity)
   AHash * ahash = _ahash_header(*hash);
   if (capacity < ahash->length) { capacity = ahash->length; }
   capacity = _ahash_calculate_capacity(ahash->arena, capacity);
+  if (capacity <= ahash->capacity)
+  {
+    // We have not implemented any way to return extra hash capacity to
+    // the arena, so just ignore requests to shrink the hash.
+    return;
+  }
 
-  // TODO: reuse existing memory if possible
-
+  // TODO: if possible, reuse memory from the old hash
   *hash = _ahash_copy(*hash, capacity);
 
   _arena_invalidate_magic(&ahash->magic);
@@ -1558,32 +1575,90 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
-static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
+// Builds a new hash table using the existing one.  The only
+// purpose of this is to remove tombstones.
+// TODO: we can do this without a second table, right?  Get rid of spare_table member.
+static void _ahash_rebuild_table(void * hash)
 {
-  AHash * ahash = _ahash_header(*hash);
-
-  // Make sure we have room to potentially add one item.
+  AHash * ahash = _ahash_header(hash);
   size_t capacity = ahash->capacity;
-  if (ahash->length + ahash->tombstone_count >= capacity)
+  if (ahash->spare_table == NULL)
   {
-    if (ahash->tombstone_count > ahash->length)
-    {
-      // There are a lot of tombstones, so let's not increase the capacity.
-      // Call _ahash_resize_capacity just to remove the tombstones.
-    }
-    else if (capacity >= ahash_max_capacity)
-    {
-      arena_handle_no_memory(ahash->arena, 0xF0F0F005);
-    }
-    else
-    {
-      capacity *= 2;
-    }
-    _ahash_resize_capacity(hash, capacity);
-    ahash = _ahash_header(*hash);
+    ahash->spare_table = (ArenaHashInt *)arena_alloc_no_init(ahash->arena,
+      _ahash_table_size(capacity), alignof(ArenaHashInt));
   }
 
-  capacity = ahash->capacity;
+  ArenaHashInt * old_table = ahash->table;
+  ArenaHashInt * new_table = ahash->spare_table;
+  memset(new_table, 0, capacity * 2 * sizeof(ArenaHashInt));
+  ArenaHashInt mask = capacity * 2 - 1;
+  for (size_t i = 0; i < capacity * 2; i++)
+  {
+    ArenaHashInt hv = old_table[i];
+    if (hv) { return; }
+    ArenaHashInt index = old_table[capacity * 2 + i];
+    // hv points to index in the old table, so add that to the new one.
+    ArenaHashInt slot = hv & mask;
+    while (new_table[slot]) { slot = (slot + 1) & mask; }
+    new_table[slot] = hv;
+    new_table[capacity * 2 + slot] = index;
+  }
+  // TODO: maybe combine this with the code in resize_capacity that does something similar?
+
+  ahash->table = new_table;
+  ahash->spare_table = old_table;
+  ahash->tombstone_count = 0;
+}
+
+static void _ahash_ensure_space(void ** hash, size_t count)
+{
+  AHash * ahash = _ahash_header(*hash);
+  if (count <= ahash->capacity - ahash->tombstone_count - ahash->length)
+  {
+    return;  // We already have enough space.
+  }
+
+  if (count >= ahash_max_capacity - ahash->length)
+  {
+    // The hash cannot hold the requested amount of data.
+    arena_handle_no_memory(ahash->arena, 0xF0F0F005);
+  }
+
+  size_t future_length = ahash->length + count;
+
+  // desired_capacity = future_length would be bad: imagine a scenario where
+  // capacity = 1024, length = 1023, tombstone_count = 1.  When the user adds
+  // an item to the hash, this function is called and future_length would be
+  // 1024, so we wouldn't resize the hash table, but we would spend O(N)
+  // time cleaning up the tombstone, and then we'd have to do it again after the
+  // deletes that item and tries to add anohter item.  It's terrible to do
+  // O(N) work repeatedly every time the user does 2 operations.
+
+  // desired_capacity = future_length * 2 would be wasteful: if there are no
+  // tombstones, we should do the usual thing of doubling when needed.
+  // So when future_length = 17, we want to get a capacity of 32, not 64.
+
+  size_t desired_capacity = future_length + future_length / 2;
+  if (desired_capacity > ahash_max_capacity)
+  {
+    desired_capacity = ahash_max_capacity;
+  }
+
+  _ahash_resize_capacity(hash, desired_capacity);
+
+  ahash = _ahash_header(*hash);
+  if (ahash->tombstone_count)
+  {
+    _ahash_rebuild_table(*hash);
+  }
+}
+
+static inline void * _ahash_find_or_update(void ** hash, const void * item, bool * found)
+{
+  _ahash_ensure_space(hash, 1);
+
+  AHash * ahash = _ahash_header(*hash);
+  ArenaHashInt capacity = ahash->capacity;
   ArenaHashInt * table = ahash->table;
   ArenaHashInt hv = _ahash_calculate_hash(*hash, item);
   ArenaHashInt mask = capacity * 2 - 1;
@@ -1665,7 +1740,12 @@ template <typename T> static inline T * ahash_copy(const T * hash, size_t capaci
 
 template<typename T> static inline void ahash_resize_capacity(T * & hash, size_t capacity)
 {
-  return _ahash_resize_capacity((void **)&hash, capacity);
+  _ahash_resize_capacity((void **)&hash, capacity);
+}
+
+template<typename T> static inline void ahash_ensure_space(T * & hash, size_t count)
+{
+  _ahash_ensure_space((void **)&hash, count);
 }
 
 template<typename T> static inline T * ahash_find(const T * hash,
@@ -1717,6 +1797,7 @@ template<typename T> static inline bool ahash_delete_p(T * hash,
 #else
 #define ahash_copy(hash, cap) ((typeof_unqual(*hash)*)_ahash_copy((hash), (cap)))
 #define ahash_resize_capacity(hash, c) (_ahash_resize_capacity(_ARENA_PP(&(hash)), (c)))
+#define ahash_ensure_space(hash, c) (_ahash_ensure_space(_ARENA_PP(&(hash)), (c)))
 #define ahash_set_length(hash, l) (_ahash_set_length(_ARENA_PP(&(hash)), (l)))
 #define ahash_find(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_VAL((k), typeof_unqual((hash)->key))))
 #define ahash_find_p(hash, k) ((typeof(hash))_ahash_find((hash), _ARENA_T_PTR((k), typeof_unqual((hash)->key))))

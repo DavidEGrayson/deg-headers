@@ -453,15 +453,19 @@ void test_ahash_type_default()
     assert(ahash_find_p(hash, &ckey)->value == 22);
   }
 
-  ahash_resize_capacity(hash, 17);
-  assert(ahash_capacity(hash) == 32);
-
   {
     // copy tests
     KVPair * hash2 = ahash_copy(hash, 0);
     assert(ahash_capacity(hash2) == 4);
     assert(ahash_find(hash, 3)->value == 33);
     assert(ahash_find(hash2, 3)->value == 33);
+  }
+
+  {
+    // resize_capacity tests
+    ahash_resize_capacity(hash, 17);
+    assert(ahash_capacity(hash) == 32);
+    assert(ahash_length(hash) == 3);
   }
 
   {
@@ -611,9 +615,39 @@ void test_ahash_type_byte_slice()
   }
 }
 
+typedef struct StringPair {
+  size_t key;
+  size_t value;
+} StringPair;
+
+void test_ahash_growth()
+{
+  {
+    // Normal growth (no deletions).
+    // Just want it to double when it needs more space, but no sooner.
+    StringPair * hash = ahash_create(&arena, 8, AKEY_DEFAULT, StringPair);
+    assert(ahash_capacity(hash) == 8);
+    for (size_t i = 0; i < 8; i++)
+    {
+      ahash_update(hash, ((StringPair){ i, i * 1000 }));
+    }
+    assert(ahash_capacity(hash) == 8);
+    ahash_update(hash, ((StringPair){ 9, 9000 }));
+    assert(ahash_length(hash) == 9);
+    assert(ahash_capacity(hash) == 16);
+    ahash_ensure_space(hash, 8);
+    assert(ahash_capacity(hash) == 32);
+  }
+
+  {
+    // TODO: test growth with tombstones
+  }
+}
+
 int main()
 {
-  srand(time(NULL));
+  srand(0);  // deterministic tests
+  //srand(time(NULL));
 
   test_vsnprintf();
 
@@ -631,6 +665,7 @@ int main()
   test_ahash_type_default();
   test_ahash_type_string();
   test_ahash_type_byte_slice();
+  test_ahash_growth();
 
   printf("Success.\n");
 
