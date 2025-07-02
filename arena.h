@@ -1575,10 +1575,9 @@ static inline void * _ahash_find(const void * hash, const void * key)
   return NULL;
 }
 
-// Builds a new hash table using the existing one.  The only
-// purpose of this is to remove tombstones.
+// Removes all the tombstones from the hash table.
 // TODO: we can do this without a second table, right?  Get rid of spare_table member.
-static void _ahash_rebuild_table(void * hash)
+static void _ahash_clean_table(void * hash)
 {
   AHash * ahash = _ahash_header(hash);
   size_t capacity = ahash->capacity;
@@ -1649,7 +1648,7 @@ static void _ahash_ensure_space(void ** hash, size_t count)
   ahash = _ahash_header(*hash);
   if (ahash->tombstone_count)
   {
-    _ahash_rebuild_table(*hash);
+    _ahash_clean_table(*hash);
   }
 }
 
