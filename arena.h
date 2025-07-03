@@ -122,8 +122,8 @@ typedef struct Arena
   // (arena->block) until we are done making those allocations.
   // If the alignments of the allocations do not exceed alignof(max_align_t),
   // and addresses returned by malloc and arena_block_overhead are both
-  // multiples of max_align_t, then I believe this is guaranteed to be
-  // an over-estimate.  TODO: proof
+  // multiples of max_align_t, then this is guaranteed to be
+  // an over-estimate.
   size_t size_estimate;
 
   // The highest remembered value of size_estimate.
@@ -1473,7 +1473,6 @@ static void _ahash_resize_capacity(void ** hash, size_t capacity)
     return;
   }
 
-  // TODO: if possible, reuse memory from the old hash
   *hash = _ahash_copy(*hash, capacity);
 
   _arena_invalidate_magic(&ahash->magic);
