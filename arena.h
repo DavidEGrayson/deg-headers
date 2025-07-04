@@ -1,4 +1,4 @@
-// arena.h v1.0.0
+// arena.h v1.1.0
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
@@ -365,6 +365,15 @@ static inline void arena_free(Arena * arena)
 // Macro that calls arena_alloc with the right arguments to allocate space for
 // one object of the specified type.
 #define arena_alloc1(arena, type) ((type *)arena_alloc(arena, sizeof(type), alignof(type)))
+
+// Copies a C string into the arena and returns a pointer to it.
+char * arena_puts(Arena * arena, const char * str)
+{
+  size_t length = strlen(str);
+  char * new_str = (char *)arena_alloc(arena, length, 1);
+  memcpy(new_str, str, length + 1);
+  return new_str;
+}
 
 // Just like arena_printf but takes a va_list.
 static char * arena_vprintf(Arena * arena, const char * format, va_list ap)
@@ -1659,24 +1668,32 @@ static inline bool _ahash_delete(void * hash, const void * key)
 
   ahash->length--;
 
+  // In the group of non-empty slots that contains the one we just deleted,
+  // find the earliest one.
+  ArenaHashInt mask = capacity * 2 - 1;
+  size_t start = slot;
+  while (table[(start - 1) & mask])
+  {
+    start = (start - 1) & mask;
+  }
+
   // Iterate through the table, back-shifting slots to if necessary
   // until we find an empty one.
   {
-    ArenaHashInt mask = capacity * 2 - 1;
-    size_t dest_slot = slot;
-    size_t src_slot = (slot + 1) & mask;
-    while (table[src_slot])
+    size_t dest = slot;
+    size_t src = (slot + 1) & mask;
+    while (table[src])
     {
-      if (((table[src_slot] - slot) & mask) <= ((table[dest_slot] - slot) & mask))
+      if (((table[src] - start) & mask) <= ((table[dest] - start) & mask))
       {
-        // Move the contents of src_slot to dest_slot to fix searches for
-        // the item in src_slot.
-        table[dest_slot] = table[src_slot];
-        table[capacity * 2 + dest_slot] = table[capacity * 2 + src_slot];
-        table[src_slot] = 0;
-        dest_slot = src_slot;
+        // Move the contents of src slot to dest slot to fix searches for
+        // the item in src slot.
+        table[dest] = table[src];
+        table[capacity * 2 + dest] = table[capacity * 2 + src];
+        table[src] = 0;
+        dest = src;
       }
-      src_slot = (slot + 1) & mask;
+      src = (slot + 1) & mask;
     }
   }
   return 1;
