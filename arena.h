@@ -1,4 +1,4 @@
-// arena.h v1.1.0
+// arena.h v1.1.1
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
@@ -370,7 +370,7 @@ static inline void arena_free(Arena * arena)
 char * arena_puts(Arena * arena, const char * str)
 {
   size_t length = strlen(str);
-  char * new_str = (char *)arena_alloc(arena, length, 1);
+  char * new_str = (char *)arena_alloc(arena, length + 1, 1);
   memcpy(new_str, str, length + 1);
   return new_str;
 }
