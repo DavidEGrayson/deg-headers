@@ -1,4 +1,4 @@
-// arena.h v1.1.1
+// arena.h v1.1.2
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
@@ -43,6 +43,8 @@
 // typeof_unqual.
 //
 // This documentation continues in the comments below.
+
+#pragma once
 
 #include <assert.h>
 #include <stdalign.h>
@@ -171,13 +173,13 @@ static void arena_handle_no_memory(Arena *, size_t) __attribute__((noreturn));
 
 // Handles cases where malloc returned NULL (or the amount of memory we wanted
 // would not even fit in a size_t).
-static void arena_handle_no_memory(Arena * arena, size_t size)
+static void arena_handle_no_memory(Arena * arena, size_t code)
 {
   if (arena->no_memory_callback != NULL)
   {
-    arena->no_memory_callback(arena->no_memory_callback_data, size);
+    arena->no_memory_callback(arena->no_memory_callback_data, code);
   }
-  fprintf(stderr, "Error: Failed to allocate %zu bytes.\n", size);
+  fprintf(stderr, "Error: out of memory (code %zu)\n", code);
   exit(1);
 }
 
@@ -613,7 +615,7 @@ static int astr_vprintf(char ** str, const char * format, va_list ap)
       // This error probably never happens.  But if it does, we should give
       // the user some clue that it happened, so let's report it as a no memory
       // error.  It's not too far from the truth.
-      arena_handle_no_memory(astr->arena, 0xF0F0F000);
+      arena_handle_no_memory(astr->arena, 2000000000);
     }
     else if ((size_t)result < available)
     {
@@ -625,7 +627,7 @@ static int astr_vprintf(char ** str, const char * format, va_list ap)
     {
       // This shouldn't happen. We already grew the string once and there still
       // is not enough space.
-      arena_handle_no_memory(astr->arena, 0xF0F0F001);
+      arena_handle_no_memory(astr->arena, 2000000001);
     }
 
     // There wasn't enough capacity in the string, so the string needs to grow.
@@ -896,7 +898,7 @@ static void _ali_resize_capacity(void ** list, size_t new_capacity)
 
   if (new_capacity < h->length) { new_capacity = h->length; }
 
-  size_t size = sizeof(AList) + (new_capacity + 1) * sizeof(void *);
+  size_t size = sizeof(AList) + (new_capacity + 1) * h->item_size;
   if (arena_resize(h->arena, h, size))
   {
     h->capacity = new_capacity;
