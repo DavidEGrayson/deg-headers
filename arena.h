@@ -1,4 +1,4 @@
-// arena.h v1.1.2
+// arena.h v1.1.3
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
@@ -549,7 +549,11 @@ static void astr_resize_capacity(char ** str, size_t new_capacity)
 static void astr_set_length(char ** str, size_t length)
 {
   AString * astr = _astr_header(*str);
-  if (length > astr->capacity) { astr_resize_capacity(str, length); }
+  if (length > astr->capacity)
+  {
+    astr_resize_capacity(str, length);
+    astr = _astr_header(*str);
+  }
   if (length > astr->length)
   {
     memset(*str + astr->length, 0, 1 + length - astr->length);
@@ -926,7 +930,11 @@ static inline void _ali_set_length(void ** list, size_t length)
 {
   assert(list);
   AList * h = _ali_header(*list);
-  if (length > h->capacity) { _ali_resize_capacity(list, length); }
+  if (length > h->capacity)
+  {
+    _ali_resize_capacity(list, length);
+    h = _ali_header(*list);
+  }
   if (length > h->length)
   {
     memset((uint8_t *)*list + h->length * h->item_size, 0, (length - h->length) * h->item_size);
