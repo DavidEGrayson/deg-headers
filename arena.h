@@ -1,4 +1,4 @@
-// arena.h v1.1.3
+// arena.h v1.1.4
 // Public domain arena, string, and container utilities for C/C++
 // https://github.com/DavidEGrayson/deg-headers
 //
@@ -1423,7 +1423,6 @@ static inline void * _ahash_create(Arena * arena, size_t capacity, AKeyType type
 
 static inline AHash * _ahash_header(const void * hash)
 {
-  assert(((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   assert(hash && ((size_t *)hash)[-1] == (size_t)MAGIC_AHASH);
   return (AHash *)((uint8_t *)hash - sizeof(AHash));
 }
